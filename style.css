@@ -139,7 +139,9 @@ body.mp-connected #chat-panel.chat-open {
 }
 .mode-tab:hover { color: rgba(255,255,255,.55); }
 .mode-tab.active { color: rgba(255,255,255,.75); border-bottom-color: rgba(255,255,255,.3); }
-.mode-tab-pane-hidden { display: none; }
+.mode-tab-body { display: grid; }
+.mode-tab-body .mode-tab-pane { grid-area: 1 / 1; }
+.mode-tab-pane-hidden { visibility: hidden; pointer-events: none; }
 
 .mode-section { padding: 10px 12px 4px; border-bottom: 1px solid rgba(255,255,255,.05); }
 .mode-section:last-child { border-bottom: none; padding-bottom: 10px; }
