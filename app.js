@@ -1873,6 +1873,7 @@ multiplayer
     }
   })
   .on('connected', () => {
+    document.body.classList.add('mp-connected');
     consolePrint('co-op partner connected', 4000);
     if (multiplayer.isHost && !multiplayer._registryWired) {
       multiplayer._registryWired = true;
@@ -1898,6 +1899,7 @@ multiplayer
     for (const midi of remoteNotes.keys()) onNoteOffFlower(midi);
     remoteNotes.clear();
     document.body.classList.remove('mp-client');
+    document.body.classList.remove('mp-connected');
   })
   // ── Incoming notes from partner ──
   .on('NOTE_ON', ({ midi, velocity }) => {
@@ -2025,6 +2027,33 @@ multiplayer
   });
 
 multiplayer.init();
+
+// ── Chat ──
+const chatMessagesEl = document.getElementById('chat-messages');
+const chatInputEl    = document.getElementById('chat-input');
+
+function chatAppend(text, side) {
+  const msg = document.createElement('div');
+  msg.className = `chat-msg chat-${side}`;
+  const who = document.createElement('span');
+  who.className = 'chat-who';
+  who.textContent = side === 'you' ? 'you' : 'them';
+  msg.append(who, text);
+  chatMessagesEl.appendChild(msg);
+  if (chatMessagesEl.children.length > 60) chatMessagesEl.firstChild.remove();
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+}
+
+multiplayer.on('CHAT', ({ text }) => chatAppend(text, 'them'));
+
+chatInputEl?.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const text = chatInputEl.value.trim();
+  chatInputEl.value = '';
+  if (!text || !multiplayer.isConnected) return;
+  multiplayer.send('CHAT', { text });
+  chatAppend(text, 'you');
+});
 
 // Share button — copies join URL to clipboard
 document.getElementById('mp-share-btn')?.addEventListener('click', () => {

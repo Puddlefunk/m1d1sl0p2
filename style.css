@@ -38,6 +38,39 @@ canvas { display: block; }
 body.mp-client .knob       { pointer-events: none; }
 body.mp-client .port-jack  { pointer-events: none; }
 
+/* ── Chat ── */
+#chat-panel {
+  display: none;
+  position: fixed; bottom: 260px; left: 16px;
+  width: 260px; z-index: 10; font-family: monospace; font-size: 11px;
+}
+body.mp-connected #chat-panel { display: block; }
+
+#chat-messages {
+  max-height: 108px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 3px;
+  margin-bottom: 5px; padding-right: 2px;
+  scrollbar-width: none;
+}
+#chat-messages::-webkit-scrollbar { display: none; }
+
+.chat-msg { color: rgba(255,255,255,.45); word-break: break-word; line-height: 1.4; }
+.chat-msg .chat-who { letter-spacing: 1px; margin-right: 5px; }
+.chat-msg.chat-you  .chat-who { color: rgba(255,255,255,.6); }
+.chat-msg.chat-them .chat-who { color: rgba(60,200,255,.7); }
+
+#chat-input-wrap { display: flex; align-items: center; gap: 6px; }
+#chat-prompt { color: rgba(255,255,255,.2); }
+#chat-input {
+  background: transparent; border: none;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  color: rgba(255,255,255,.65); font-family: monospace; font-size: 11px;
+  outline: none; width: 100%; padding: 2px 0;
+  transition: border-color .15s;
+}
+#chat-input:focus { border-bottom-color: rgba(255,255,255,.25); }
+#chat-input::placeholder { color: rgba(255,255,255,.15); }
+
 #game-controls {
   position: fixed; bottom: 232px; left: 50%; transform: translateX(-50%);
   display: flex; gap: 8px; align-items: center; z-index: 10;
