@@ -2174,10 +2174,68 @@ function dispatchCommand(v) {
   if (base) consolePrint(`unknown: ${base}\ntype 'help' for directories`, ms);
 }
 
+const KNOWN_COMMANDS = [
+  'help','visuals','cheats','controls','rules','reset','mp',
+  'resetall','resetlevel','resetscore','resetmods',
+  'idkfa','idclip','iddqd',
+  'flash','burn','streak','labels',
+  'bg','nodes','lightning','ripples','rings','polygon',
+  'centerglow','hintnotes','keyguides','eartraining','screenrip',
+  'keys','mods','fxon','fxoff','fol',
+  'makebutton','removebutton','level',
+];
+const _cmdHistory = [];
+let _historyIdx   = -1;
+let _historyDraft = '';
+
 document.getElementById('cheat-input').addEventListener('keydown', e => {
+  const input = e.target;
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!_cmdHistory.length) return;
+    if (_historyIdx === -1) _historyDraft = input.value;
+    _historyIdx = Math.min(_historyIdx + 1, _cmdHistory.length - 1);
+    input.value = _cmdHistory[_cmdHistory.length - 1 - _historyIdx];
+    return;
+  }
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (_historyIdx === -1) return;
+    _historyIdx--;
+    input.value = _historyIdx === -1 ? _historyDraft : _cmdHistory[_cmdHistory.length - 1 - _historyIdx];
+    return;
+  }
+
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const val = input.value;
+    if (!val.startsWith('-')) return;
+    const partial = val.slice(1).toLowerCase();
+    if (!partial) return;
+    const matches = KNOWN_COMMANDS.filter(c => c.startsWith(partial));
+    if (!matches.length) return;
+    if (matches.length === 1) {
+      input.value = '-' + matches[0] + ' ';
+    } else {
+      // complete to longest common prefix, show options
+      let lcp = matches[0];
+      for (const m of matches.slice(1)) {
+        let i = 0; while (i < lcp.length && lcp[i] === m[i]) i++;
+        lcp = lcp.slice(0, i);
+      }
+      input.value = '-' + lcp;
+      consolePrint(matches.join('   '));
+    }
+    return;
+  }
+
   if (e.key !== 'Enter') return;
-  const raw = e.target.value.trim(); e.target.value = '';
+  const raw = input.value.trim(); input.value = '';
+  _historyIdx = -1; _historyDraft = '';
   if (!raw) return;
+  _cmdHistory.push(raw); if (_cmdHistory.length > 50) _cmdHistory.shift();
   if (raw.startsWith('-')) {
     dispatchCommand(raw.slice(1).toLowerCase().trim());
   } else {
