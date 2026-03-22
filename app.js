@@ -1909,11 +1909,16 @@ class NoteInputSystem {
 // ─────────────────────────────────────────────────────────────
 // SECTION 18 — CONSOLE COMMANDS
 // ─────────────────────────────────────────────────────────────
-const consoleOutEl=document.getElementById('console-out');
-function consolePrint(msg, ms=6000) {
-  consoleOutEl.textContent=msg; consoleOutEl.style.display='block';
-  clearTimeout(consolePrint._t);
-  consolePrint._t=setTimeout(()=>{ consoleOutEl.style.display='none'; },ms);
+function consolePrint(msg, _ms) {
+  // Append as a persistent entry in the console/chat panel — no timeout
+  const el = document.createElement('div');
+  el.className = 'chat-msg chat-system';
+  el.textContent = msg;
+  chatMessagesEl.appendChild(el);
+  if (chatMessagesEl.children.length > 80) chatMessagesEl.firstChild.remove();
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  clearTimeout(_chatHideTimer); // don't auto-hide while fresh console output is showing
+  chatPanelEl.classList.add('chat-open');
 }
 
 const BTNS_KEY = 'm1d1sl0p2_btns';
@@ -1932,12 +1937,12 @@ function dispatchCommand(v) {
   const base = _dm ? _dm[1].trim() : v;
   const ms   = _dm ? Math.min(45, parseInt(_dm[2])) * 1000 : 6000;
 
-  if (base==='help') { consolePrint('COMMANDS (prefix ~ to run):\n  rules     — how to play\n  reset     — reset options\n  visuals   — visual toggles\n  controls  — button controls\n  cheats    — cheat codes\n  mp        — multiplayer status\n\nplain text sends as chat when connected', ms); return; }
-  if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  fxon        — enable all effects\n  fxoff       — disable all effects', ms); return; }
-  if (base==='cheats') { consolePrint('CHEATS:\n  idkfa   — +5000 pts\n  idclip  — next level\n  iddqd   — max level + unlock shop', ms); return; }
-  if (base==='controls') { consolePrint('CONTROLS:\n  makebutton <cmd>   — add a quick-access button\n  removebutton <cmd> — remove a button', ms); return; }
-  if (base==='rules') { consolePrint('HOW TO PLAY:\n  1. Press PLAY and pick a key/scale\n  2. Watch the chord name — that\'s your challenge\n  3. Play those notes on keyboard or MIDI\n  4. Score points → level up → buy synth modules\n  5. Patch cables between modules to shape your sound', ms); return; }
-  if (base==='reset') { consolePrint('RESET OPTIONS\n\nWARNING: these unrecoverably remove progress.\n\n  resetall    — wipe all progress and reload\n  resetlevel  — reset level to 1\n  resetscore  — reset score to 0\n  resetmods   — clear all modules (keeps audio out)', ms); return; }
+  if (base==='help') { consolePrint('COMMANDS (prefix > to run):\n  rules     — how to play\n  reset     — reset options\n  visuals   — visual toggles\n  controls  — button controls\n  cheats    — cheat codes\n  mp        — multiplayer status\n\nplain text sends as chat when connected'); return; }
+  if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  fxon        — enable all effects\n  fxoff       — disable all effects'); return; }
+  if (base==='cheats') { consolePrint('CHEATS:\n  idkfa   — +5000 pts\n  idclip  — next level\n  iddqd   — max level + unlock shop'); return; }
+  if (base==='controls') { consolePrint('CONTROLS:\n  makebutton <cmd>   — add a quick-access button\n  removebutton <cmd> — remove a button'); return; }
+  if (base==='rules') { consolePrint('HOW TO PLAY:\n  1. Press PLAY and pick a key/scale\n  2. Watch the chord name — that\'s your challenge\n  3. Play those notes on keyboard or MIDI\n  4. Score points → level up → buy synth modules\n  5. Patch cables between modules to shape your sound'); return; }
+  if (base==='reset') { consolePrint('RESET OPTIONS\n\nWARNING: these unrecoverably remove progress.\n\n  resetall    — wipe all progress and reload\n  resetlevel  — reset level to 1\n  resetscore  — reset score to 0\n  resetmods   — clear all modules (keeps audio out)'); return; }
   if (base==='resetall') {
     localStorage.removeItem(SAVE_KEY); localStorage.removeItem(BTNS_KEY);
     if (multiplayer.isConnected) { multiplayer.conn?.close(); multiplayer.peer?.destroy(); }
@@ -2029,14 +2034,14 @@ document.getElementById('cheat-input').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const raw = e.target.value.trim(); e.target.value = '';
   if (!raw) return;
-  if (raw.startsWith('~')) {
+  if (raw.startsWith('>')) {
     dispatchCommand(raw.slice(1).toLowerCase().trim());
   } else {
     if (multiplayer.isConnected) {
       multiplayer.send('CHAT', { text: raw });
       chatAppend(raw, 'you');
     } else {
-      consolePrint('not connected — use ~ for commands  (e.g. ~help)', 4000);
+      consolePrint('not connected — use > for commands  (e.g. >help)');
     }
   }
 });
@@ -2547,10 +2552,11 @@ function _chatForceClose() {
 
 chatInputEl.addEventListener('focus', () => {
   clearTimeout(_chatHideTimer);
-  if (multiplayer.isConnected) chatPanelEl.classList.add('chat-open');
+  chatPanelEl.classList.add('chat-open');
 });
 chatInputEl.addEventListener('blur', () => {
-  if (multiplayer.isConnected) _chatRescheduleHide();
+  // Only auto-hide if no console content and not connected — panel has ✕ to close manually
+  if (multiplayer.isConnected && chatMessagesEl.children.length === 0) _chatRescheduleHide();
 });
 document.getElementById('chat-close-btn').addEventListener('click', _chatForceClose);
 

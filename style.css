@@ -49,7 +49,7 @@ canvas { display: block; }
   opacity: 0; pointer-events: none; transform: translateY(6px);
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
-body.mp-connected #chat-panel.chat-open {
+#chat-panel.chat-open {
   opacity: 1; pointer-events: auto; transform: translateY(0);
 }
 
@@ -65,9 +65,9 @@ body.mp-connected #chat-panel.chat-open {
 #chat-close-btn:hover { color: rgba(255,255,255,.65); }
 
 #chat-messages {
-  max-height: 120px; overflow-y: auto;
+  max-height: 180px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 3px;
-  padding: 8px 10px 8px; scrollbar-width: none;
+  padding: 8px 10px 6px; scrollbar-width: none;
 }
 #chat-messages::-webkit-scrollbar { display: none; }
 
@@ -77,7 +77,7 @@ body.mp-connected #chat-panel.chat-open {
 .chat-msg.chat-alice  .chat-who { color: rgba(255,255,255,.6); }
 .chat-msg.chat-bob    .chat-who { color: rgba(60,200,255,.7); }
 .chat-msg.chat-them   .chat-who { color: rgba(60,200,255,.7); }
-.chat-msg.chat-system { color: rgba(255,255,255,.25); font-style: italic; }
+.chat-msg.chat-system { color: rgba(255,255,255,.25); font-style: italic; white-space: pre-wrap; }
 
 
 #game-controls {
@@ -511,22 +511,14 @@ body.mp-connected .mode-disconnect-btn { display: block; }
 .shop-tab.active[data-tab="fx"]     { color:rgba(180,100,255,0.85); border-bottom-color:rgba(180,100,255,0.5); }
 .shop-tab.active[data-tab="cv"]     { color:rgba(255,185,55,0.85);  border-bottom-color:rgba(255,185,55,0.5); }
 
-/* Console */
+/* Console input row — lives inside #chat-panel */
 #console-wrap {
-  position: fixed; bottom: 20px; left: 16px; width: 280px;
-  background: rgba(0,0,0,.65); border: 1px solid rgba(255,255,255,.1);
-  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
-  transition: border-color .2s; z-index: 10;
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px 8px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  transition: border-top-color .2s;
 }
-#console-wrap:focus-within { border-color: rgba(255,255,255,.28); }
-#console-prompt { color: rgba(255,255,255,.35); font-family: monospace; font-size: 12px; user-select: none; flex-shrink: 0; }
+#console-wrap:focus-within { border-top-color: rgba(255,255,255,.22); }
+#console-prompt { color: rgba(255,255,255,.28); font-family: monospace; font-size: 12px; user-select: none; flex-shrink: 0; }
 #console-wrap:focus-within #console-prompt { color: rgba(255,255,255,.6); }
-#cheat-input { background: none; border: none; outline: none; flex: 1; color: rgba(255,255,255,.75); font-family: monospace; font-size: 12px; letter-spacing: 1px; min-width: 0; }
-#cheat-input::placeholder { color: rgba(255,255,255,.15); }
-#console-out {
-  position: fixed; bottom: 56px; left: 16px; width: 280px;
-  background: rgba(0,0,0,.80); border: 1px solid rgba(255,255,255,.1);
-  font-family: monospace; font-size: 10px; color: rgba(255,255,255,.55);
-  padding: 8px 12px; display: none; white-space: pre-wrap; line-height: 1.6;
-  letter-spacing: 0.5px; pointer-events: none; z-index: 10;
-}
+#cheat-input { background: none; border: none; outline: none; flex: 1; color: rgba(255,255,255,.75); font-family: monospace; font-size: 11px; letter-spacing: 1px; min-width: 0; }
+#cheat-input::placeholder { color: rgba(255,255,255,.13); }
