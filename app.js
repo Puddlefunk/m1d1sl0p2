@@ -47,6 +47,7 @@ let synthGlowAlpha   = 0;
 let synthGlowH       = 0;
 let synthRippleBoxes = [];
 let screenRipples    = [];
+let burnEffect       = null; // { startTime, hue, duration } — fractal corona clear
 let bpm = 0, clockTimes = [], pulseCount = 0, lastPulseTime = 0;
 let useMidiClock = false;
 let internalBpm = 120, internalBpmActive = false, _tapTimes = [];
@@ -951,6 +952,7 @@ class GameEngine {
     triggerPhosphorFlash(_ph);
     if (big) { setTimeout(() => triggerPhosphorFlash(_ph), 180); setTimeout(() => triggerPhosphorFlash(_ph), 360); }
     playLevelUpSound();
+    setTimeout(() => spawnBurnEffect(_ph), 600);
   }
 
   update() {
@@ -1235,6 +1237,58 @@ function onNoteOffFlower(midi) {
 function triggerPhosphorFlash(h = folPhosphorHue) {
   folPhosphorAlpha = 1.0;
   folPhosphorHue   = h;
+}
+
+function spawnBurnEffect(h = folPhosphorHue) {
+  burnEffect = { startTime: performance.now(), hue: h, duration: 1800 };
+}
+
+function drawBurnEffect() {
+  if (!burnEffect) return;
+  const { startTime, hue: h, duration } = burnEffect;
+  const raw = (performance.now() - startTime) / duration;
+  if (raw >= 1) { burnEffect = null; return; }
+
+  const t   = Math.min(1, raw);
+  const ease = 1 - Math.pow(1 - t, 2.2); // fast start, slows near edges
+  const cx  = canvas.width / 2, cy = canvas.height / 2;
+  const maxR = Math.hypot(canvas.width / 2, canvas.height / 2) * 1.35;
+  const baseR = maxR * ease;
+
+  const STEPS = 128;
+  // Pre-compute fractal path points (shared by erase + char-edge pass)
+  const pts = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const a = (i / STEPS) * Math.PI * 2;
+    const d = 1
+      + 0.10 * Math.sin(a *  3 + t *  6.2)
+      + 0.06 * Math.sin(a *  7 + t * 11.3)
+      + 0.04 * Math.sin(a * 13 + t * 17.7)
+      + 0.02 * Math.sin(a * 23 + t * 27.1);
+    pts.push({ x: cx + baseR * d * Math.cos(a), y: cy + baseR * d * Math.sin(a) });
+  }
+
+  // ── Erase interior ──
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // ── Char edge — glowing fire front ──
+  const edgeA = (1 - t * 0.5) * 0.85; // bright early, fades as it reaches empty edges
+  ctx.save();
+  ctx.strokeStyle = `hsla(${h}, 75%, 82%, ${edgeA})`;
+  ctx.lineWidth   = 3;
+  ctx.shadowColor = `hsla(${h}, 85%, 65%, ${edgeA * 0.9})`;
+  ctx.shadowBlur  = 28;
+  ctx.beginPath();
+  pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function triggerStreakFlash(level = 1) {
@@ -1647,6 +1701,7 @@ function updateFlowerPulse() {
 function animate() {
   requestAnimationFrame(animate);
   ctx.fillStyle='rgba(0,0,0,.13)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  drawBurnEffect();
   if (showFlowerBg) drawFlowerBackground();
   if (showModules) drawSynthGlow();
   gameEngine?.update();
@@ -2034,6 +2089,7 @@ function dispatchCommand(v) {
   if (base==='resetmods') { for(const id of [...registry.modules.keys()])if(id!=='audio-out-0')registry.removeModule(id); const oid=registry.addModule('osc-sine'); registry.addPatch(oid,'audio','audio-out-0','in'); audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return; }
   if (base==='idkfa') { score+=5000; scoreValEl.textContent=score.toLocaleString(); if(shopSystem?.el.classList.contains('open'))shopSystem.render(score); consolePrint('+5000 pts', ms); saveState(); return; }
   if (base==='flash') { triggerPhosphorFlash(); consolePrint('✦ phosphor', ms); return; }
+  if (base==='burn')  { spawnBurnEffect(currentChallenge?.h ?? folPhosphorHue); consolePrint('✦ burn', ms); return; }
   if (base==='streak') { triggerStreakFlash(); consolePrint('✦ streak', ms); return; }
   if (base==='labels') { folNodeLabelStart = performance.now(); return; }
   if (base==='idclip') {
