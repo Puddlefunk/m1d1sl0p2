@@ -2073,7 +2073,7 @@ function dispatchCommand(v) {
   const base = _dm ? _dm[1].trim() : v;
   const ms   = _dm ? Math.min(45, parseInt(_dm[2])) * 1000 : 6000;
 
-  if (base==='help') { consolePrint('COMMANDS (prefix > to run):\n  rules     — how to play\n  reset     — reset options\n  visuals   — visual toggles\n  controls  — button controls\n  cheats    — cheat codes\n  mp        — multiplayer status\n\nplain text sends as chat when connected'); return; }
+  if (base==='help') { consolePrint('COMMANDS (prefix - to run):\n  rules     — how to play\n  reset     — reset options\n  visuals   — visual toggles\n  controls  — button controls\n  cheats    — cheat codes\n  mp        — multiplayer status\n\nplain text sends as chat when connected'); return; }
   if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  burn        — trigger fractal burn clear\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  keys        — toggle on-screen keyboard\n  mods        — toggle synth modules\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  fxon        — enable all effects\n  fxoff       — disable all effects'); return; }
   if (base==='cheats') { consolePrint('CHEATS:\n  idkfa   — +5000 pts\n  idclip  — next level\n  iddqd   — max level + unlock shop'); return; }
   if (base==='controls') { consolePrint('CONTROLS:\n  makebutton <cmd>   — add a quick-access button\n  removebutton <cmd> — remove a button'); return; }
@@ -2173,14 +2173,14 @@ document.getElementById('cheat-input').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const raw = e.target.value.trim(); e.target.value = '';
   if (!raw) return;
-  if (raw.startsWith('>')) {
+  if (raw.startsWith('-')) {
     dispatchCommand(raw.slice(1).toLowerCase().trim());
   } else {
     if (multiplayer.isConnected) {
       multiplayer.send('CHAT', { text: raw });
       chatAppend(raw, 'you');
     } else {
-      consolePrint('not connected — use > for commands  (e.g. >help)');
+      consolePrint('not connected — use - for commands  (e.g. -help)');
     }
   }
 });
