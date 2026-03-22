@@ -26,6 +26,19 @@ const SCALE_CHORD_QUALITIES = {
   lydian:     ['major','major','minor','dim','major','minor','minor'],
   mixolydian: ['major','minor','dim','major','minor','minor','major'],
 };
+// 7th quality per scale degree — drives both 7th and 9th chord generation
+const SCALE_CHORD_7TH_QUALITIES = {
+  major:      ['maj7','m7','m7','maj7','7','m7','m7b5'],
+  minor:      ['m7','m7b5','maj7','m7','m7','maj7','7'],
+  dorian:     ['m7','m7','maj7','7','m7','m7b5','maj7'],
+  phrygian:   ['m7','maj7','7','m7','m7b5','maj7','m7'],
+  lydian:     ['maj7','7','m7','m7b5','maj7','m7','m7'],
+  mixolydian: ['7','m7','m7b5','maj7','m7','m7','maj7'],
+};
+const _Q7_SYM  = { 'maj7':'M7',  'm7':'m7', '7':'7', 'm7b5':'m7b5' };
+const _Q9_SYM  = { 'maj7':'M9',  'm7':'m9', '7':'9', 'm7b5': null  };
+const _Q7_DISP = { 'maj7':'maj7','m7':'m7', '7':'7', 'm7b5':'m7b5' };
+const _Q9_DISP = { 'maj7':'maj9','m7':'m9', '7':'9', 'm7b5': null  };
 const SCALE_DIFF_MAP = [1,1,1,1,1,1,1];
 
 let gameMode         = 'practice';
@@ -108,15 +121,35 @@ function buildKeyPool(root, scaleName) {
   const notes = scale.notes?.length >= 7 ? scale.notes : Scale.get(`${root} major`).notes;
   if (!notes || notes.length < 7) return null;
   const pool = [];
+  // Triads (diff 1)
   notes.slice(0,7).forEach((note, i) => {
     const q = qualities[i];
     let sym, display;
-    if (q === 'major')  { sym = note;         display = `${note} major`; }
-    else if (q === 'minor') { sym = `${note}m`; display = `${note} minor`; }
-    else                    { sym = `${note}dim`; display = `${note} dim`; }
+    if (q === 'major')      { sym = note;          display = `${note} major`; }
+    else if (q === 'minor') { sym = `${note}m`;    display = `${note} minor`; }
+    else                    { sym = `${note}dim`;  display = `${note} dim`;   }
     const chord = Chord.get(sym);
     if (!chord.notes || chord.notes.length < 3) return;
-    pool.push({ display, notes: chord.notes, diff: SCALE_DIFF_MAP[i] ?? 2 });
+    pool.push({ display, notes: chord.notes, diff: 1 });
+  });
+  // 7ths (diff 2)
+  const q7s = SCALE_CHORD_7TH_QUALITIES[scaleName] ?? SCALE_CHORD_7TH_QUALITIES.major;
+  notes.slice(0,7).forEach((note, i) => {
+    const q = q7s[i];
+    const sym = _Q7_SYM[q] ? `${note}${_Q7_SYM[q]}` : null;
+    if (!sym) return;
+    const chord = Chord.get(sym);
+    if (!chord.notes || chord.notes.length < 4) return;
+    pool.push({ display: `${note}${_Q7_DISP[q]}`, notes: chord.notes, diff: 2 });
+  });
+  // 9ths (diff 3)
+  notes.slice(0,7).forEach((note, i) => {
+    const q = q7s[i];
+    const sym = _Q9_SYM[q] ? `${note}${_Q9_SYM[q]}` : null;
+    if (!sym) return;
+    const chord = Chord.get(sym);
+    if (!chord.notes || chord.notes.length < 4) return;
+    pool.push({ display: `${note}${_Q9_DISP[q]}`, notes: chord.notes, diff: 3 });
   });
   return pool.length >= 3 ? pool : null;
 }
