@@ -7,28 +7,35 @@
 // SECTION 8 — UI RENDERER
 // ─────────────────────────────────────────────────────────────
 
-// Find the closest clear screen position to the screen centre.
-// Avoids overlapping any existing .panel-box. Falls back to centre.
-function findClearSpot(panelW, panelH) {
+// Find the closest clear screen position within an optional preferred X zone.
+// xZone: { min, max } in px — searches that band first, falls back to full width.
+function findClearSpot(panelW, panelH, xZone) {
   const margin = 12, pad = 10;
   const W = window.innerWidth, H = window.innerHeight;
   const topBound = 60, botBound = H - 240;
-  const lftBound = margin, rgtBound = W - panelW - margin;
   const occupied = [...document.querySelectorAll('#panels-container .panel-box')]
     .map(p => p.getBoundingClientRect()).filter(r => r.width > 0);
-  const cx = (lftBound + rgtBound) / 2;
-  const cy = (topBound + botBound - panelH) / 2;
-  const candidates = [];
-  for (let x = lftBound; x <= rgtBound; x += 24)
-    for (let y = topBound; y <= botBound - panelH; y += 24)
-      candidates.push({ x, y, d: Math.hypot(x - cx, y - cy) });
-  candidates.sort((a, b) => a.d - b.d);
-  for (const { x, y } of candidates) {
-    if (!occupied.some(r => x < r.right+pad && x+panelW > r.left-pad && y < r.bottom+pad && y+panelH > r.top-pad))
-      return { left: x, top: y };
+
+  const search = (lft, rgt) => {
+    if (lft + panelW > rgt) return null;
+    const cx = (lft + rgt) / 2, cy = (topBound + botBound - panelH) / 2;
+    const candidates = [];
+    for (let x = lft; x <= rgt; x += 24)
+      for (let y = topBound; y <= botBound - panelH; y += 24)
+        candidates.push({ x, y, d: Math.hypot(x - cx, y - cy) });
+    candidates.sort((a, b) => a.d - b.d);
+    for (const { x, y } of candidates)
+      if (!occupied.some(r => x < r.right+pad && x+panelW > r.left-pad && y < r.bottom+pad && y+panelH > r.top-pad))
+        return { left: x, top: y };
+    return null;
+  };
+
+  if (xZone) {
+    const pos = search(Math.max(margin, Math.round(xZone.min)), Math.min(W - panelW - margin, Math.round(xZone.max) - panelW));
+    if (pos) return pos;
   }
-  // Failsafe: centre
-  return { left: Math.max(margin, Math.round((W - panelW) / 2)), top: Math.max(60, Math.round((H - panelH) / 2)) };
+  return search(margin, W - panelW - margin)
+      ?? { left: Math.max(margin, Math.round((W - panelW) / 2)), top: Math.max(60, Math.round((H - panelH) / 2)) };
 }
 
 class UIRenderer {
@@ -747,7 +754,14 @@ class UIRenderer {
     if (saved) { panel.style.left = saved.left+'px'; panel.style.top = saved.top+'px'; return; }
     const w = panel.offsetWidth  || 148;
     const h = panel.offsetHeight || 180;
-    const pos = findClearSpot(w, h);
+    const W = window.innerWidth;
+    const cat = MODULE_TYPE_DEFS[type]?.category;
+    // Signal flow left→right: CV(Q1) | Voice/osc(Q2) | Effects/processor(Q3) | Shop(Q4)
+    const zone = cat === 'cv'                              ? { min: 0,        max: W * 0.25 }
+               : cat === 'osc'                             ? { min: W * 0.25, max: W * 0.50 }
+               : (cat === 'processor' || cat === 'utility')? { min: W * 0.50, max: W * 0.75 }
+               : null; // sink/unknown — no preference
+    const pos = findClearSpot(w, h, zone);
     panel.style.left = pos.left + 'px';
     panel.style.top  = pos.top  + 'px';
   }
