@@ -59,17 +59,6 @@ body.mp-connected #chat-panel { display: block; }
 .chat-msg.chat-you  .chat-who { color: rgba(255,255,255,.6); }
 .chat-msg.chat-them .chat-who { color: rgba(60,200,255,.7); }
 
-#chat-input-wrap { display: flex; align-items: center; gap: 6px; }
-#chat-prompt { color: rgba(255,255,255,.2); }
-#chat-input {
-  background: transparent; border: none;
-  border-bottom: 1px solid rgba(255,255,255,.1);
-  color: rgba(255,255,255,.65); font-family: monospace; font-size: 11px;
-  outline: none; width: 100%; padding: 2px 0;
-  transition: border-color .15s;
-}
-#chat-input:focus { border-bottom-color: rgba(255,255,255,.25); }
-#chat-input::placeholder { color: rgba(255,255,255,.15); }
 
 #game-controls {
   position: fixed; bottom: 232px; left: 50%; transform: translateX(-50%);

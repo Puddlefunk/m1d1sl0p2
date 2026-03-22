@@ -1838,9 +1838,19 @@ function dispatchCommand(v) {
 }
 
 document.getElementById('cheat-input').addEventListener('keydown', e => {
-  if (e.key!=='Enter') return;
-  const v=e.target.value.toLowerCase().trim(); e.target.value='';
-  dispatchCommand(v);
+  if (e.key !== 'Enter') return;
+  const raw = e.target.value.trim(); e.target.value = '';
+  if (!raw) return;
+  if (raw.startsWith('~')) {
+    dispatchCommand(raw.slice(1).toLowerCase().trim());
+  } else {
+    if (multiplayer.isConnected) {
+      multiplayer.send('CHAT', { text: raw });
+      chatAppend(raw, 'you');
+    } else {
+      consolePrint('not connected — use ~ for commands  (e.g. ~help)', 4000);
+    }
+  }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -2030,7 +2040,6 @@ multiplayer.init();
 
 // ── Chat ──
 const chatMessagesEl = document.getElementById('chat-messages');
-const chatInputEl    = document.getElementById('chat-input');
 
 function chatAppend(text, side) {
   const msg = document.createElement('div');
@@ -2045,15 +2054,6 @@ function chatAppend(text, side) {
 }
 
 multiplayer.on('CHAT', ({ text }) => chatAppend(text, 'them'));
-
-chatInputEl?.addEventListener('keydown', e => {
-  if (e.key !== 'Enter') return;
-  const text = chatInputEl.value.trim();
-  chatInputEl.value = '';
-  if (!text || !multiplayer.isConnected) return;
-  multiplayer.send('CHAT', { text });
-  chatAppend(text, 'you');
-});
 
 // Share button — copies join URL to clipboard
 document.getElementById('mp-share-btn')?.addEventListener('click', () => {
