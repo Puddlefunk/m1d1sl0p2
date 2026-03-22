@@ -1978,7 +1978,9 @@ const noteInputSystem = new NoteInputSystem();
 // MULTIPLAYER
 // ─────────────────────────────────────────────────────────────
 const multiplayer = new MultiplayerSystem();
-let _mpRemote = false; // true while applying an incoming remote change — suppresses re-broadcast
+let _mpRemote = false;           // true while applying an incoming remote change — suppresses re-broadcast
+let _registrySyncEnabled = true; // false in competitive — gates all outgoing registry messages
+let _pendingModeChange   = null; // mode string while waiting for partner's MODE_CHANGE response
 
 multiplayer
   .on('state-change', state => {
@@ -2011,10 +2013,10 @@ multiplayer
       if (!_isCompetitive()) {
         // Co-op only: mirror registry
         helloPayload.registry = multiplayer.snapshotRegistry(registry);
-        registry.addEventListener('module-added',   e => { if (!_mpRemote) multiplayer.send('MODULE_ADD', e.detail); });
-        registry.addEventListener('module-removed', e => { if (!_mpRemote) multiplayer.send('MODULE_REMOVE', e.detail); });
-        registry.addEventListener('param-changed',  e => { if (!_mpRemote) multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value); });
-        registry.addEventListener('patch-changed',  e => { if (!_mpRemote) multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }); });
+        registry.addEventListener('module-added',   e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.send('MODULE_ADD', e.detail); });
+        registry.addEventListener('module-removed', e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.send('MODULE_REMOVE', e.detail); });
+        registry.addEventListener('param-changed',  e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value); });
+        registry.addEventListener('patch-changed',  e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }); });
       }
       multiplayer.send('HELLO', helloPayload);
     }
@@ -2089,10 +2091,10 @@ multiplayer
       multiplayer.replaySnapshot(registry, snap); // fires events synchronously; listeners added after so no echo
       audioGraph.ensure();
       // Wire Bob's registry changes back to Alice (same guard prevents loops)
-      registry.addEventListener('module-added',   e => { if (!_mpRemote) multiplayer.send('MODULE_ADD', e.detail); });
-      registry.addEventListener('module-removed', e => { if (!_mpRemote) multiplayer.send('MODULE_REMOVE', e.detail); });
-      registry.addEventListener('param-changed',  e => { if (!_mpRemote) multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value); });
-      registry.addEventListener('patch-changed',  e => { if (!_mpRemote) multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }); });
+      registry.addEventListener('module-added',   e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.send('MODULE_ADD', e.detail); });
+      registry.addEventListener('module-removed', e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.send('MODULE_REMOVE', e.detail); });
+      registry.addEventListener('param-changed',  e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value); });
+      registry.addEventListener('patch-changed',  e => { if (!_mpRemote && _registrySyncEnabled) multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }); });
       score = game.score;
       streakCount = game.streakCount; streakLevels = game.streakLevels;
       scoreValEl.textContent = score.toLocaleString();
@@ -2234,6 +2236,66 @@ multiplayer
     registry.patches = patches.map(p => ({ ...p }));
     registry.dispatchEvent(new CustomEvent('patch-changed', { detail: { patches: registry.patches } }));
     _mpRemote = false;
+  })
+  // ── Mode change negotiation ──
+  .on('MODE_CHANGE', ({ mode }) => {
+    // Bob receives: Alice wants to change mode
+    const toComp = _isCompetitive(mode);
+    if (toComp) {
+      // Co-op → Competitive: no confirm, synth stays, just disable sync
+      _registrySyncEnabled = false;
+      selectedMode = mode;
+      _syncModePanel();
+      consolePrint('mode: competitive', 4000);
+    } else {
+      // Competitive → Co-op: offer choice
+      _showConfirm(
+        () => {
+          multiplayer.send('MODE_CHANGE_ACCEPT', { score });
+          selectedMode = mode;
+          _syncModePanel();
+          consolePrint('switching to co-op...', 4000);
+        },
+        {
+          msg: 'switch to co-op?',
+          sub: 'your synth will be replaced (+500 pts compensation)',
+          yes: 'ACCEPT',
+          no: 'KEEP SYNTH',
+          onNo: () => {
+            multiplayer.send('MODE_CHANGE_DECLINE');
+            multiplayer.conn?.close();
+            consolePrint('kept your synth — going solo', 4000);
+          },
+        }
+      );
+    }
+  })
+  .on('MODE_CHANGE_ACCEPT', ({ score: bobScore }) => {
+    // Alice receives: Bob accepted co-op transition
+    score += bobScore + 500;
+    scoreValEl.textContent = score.toLocaleString();
+    selectedMode = _pendingModeChange ?? 'coop';
+    _pendingModeChange = null;
+    _registrySyncEnabled = true;
+    _syncModePanel();
+    multiplayer.send('RESYNC', { registry: multiplayer.snapshotRegistry(registry), score });
+    consolePrint(`partner joined co-op (+${bobScore + 500} pts)`, 5000);
+  })
+  .on('MODE_CHANGE_DECLINE', () => {
+    // Alice receives: Bob kept his synth and disconnected
+    _pendingModeChange = null;
+    consolePrint('partner kept their synth — disconnected', 5000);
+  })
+  .on('RESYNC', ({ registry: snap, score: newScore }) => {
+    // Bob receives: full registry resync after accepting co-op
+    _mpRemote = true;
+    multiplayer.replaySnapshot(registry, snap);
+    _mpRemote = false;
+    audioGraph.ensure();
+    _registrySyncEnabled = true;
+    score = newScore;
+    scoreValEl.textContent = score.toLocaleString();
+    consolePrint('synced to shared synth', 4000);
   });
 
 multiplayer.init();
@@ -2309,28 +2371,36 @@ document.querySelectorAll('.mode-opt').forEach(btn => {
     if (btn.classList.contains('mode-opt-locked') || btn.classList.contains('mode-opt-soon')) return;
     const newMode = btn.dataset.mode;
     if (newMode === selectedMode) { _closeModePanel(); return; }
-    const switchingCompetitiveness = multiplayer.isConnected && (_isCompetitive(newMode) !== _isCompetitive(selectedMode));
     const go = () => { selectedMode = newMode; _syncModePanel(); _closeModePanel(); };
-    if (switchingCompetitiveness) {
-      const toComp = _isCompetitive(newMode);
-      _showConfirm(() => { _disconnect(); go(); }, {
-        msg: toComp ? 'switch to competitive?' : 'switch to co-op?',
-        sub: toComp ? 'your partner will be disconnected and synths split' : 'your partner will be disconnected and synths merged',
-        yes: 'SWITCH',
-      });
-    } else {
+    // Clients can switch locally (non-competitiveness changes only — competitive changes are host-driven)
+    if (!multiplayer.isHost) { go(); return; }
+    const switchingCompetitiveness = multiplayer.isConnected && (_isCompetitive(newMode) !== _isCompetitive(selectedMode));
+    if (!switchingCompetitiveness) { go(); return; }
+    const toComp = _isCompetitive(newMode);
+    if (toComp) {
+      // Co-op → Competitive: switch immediately, disable registry sync
+      multiplayer.send('MODE_CHANGE', { mode: newMode });
+      _registrySyncEnabled = false;
       go();
+    } else {
+      // Competitive → Co-op: wait for Bob's response
+      _pendingModeChange = newMode;
+      multiplayer.send('MODE_CHANGE', { mode: newMode });
+      _closeModePanel();
+      consolePrint('waiting for partner...', 10000);
     }
   });
 });
 
 // ── New game ──
-let _confirmCb = null;
-function _showConfirm(cb, { msg = 'are you sure?', sub = '', yes = 'YES' } = {}) {
-  _confirmCb = cb;
+let _confirmCb = null, _confirmNoCb = null;
+function _showConfirm(cb, { msg = 'are you sure?', sub = '', yes = 'YES', no = 'CANCEL', onNo = null } = {}) {
+  _confirmCb   = cb;
+  _confirmNoCb = onNo;
   document.getElementById('confirm-msg').textContent  = msg;
   document.getElementById('confirm-sub').textContent  = sub;
   document.getElementById('confirm-yes').textContent  = yes;
+  document.getElementById('confirm-no').textContent   = no;
   document.getElementById('confirm-overlay').style.display = 'flex';
 }
 
@@ -2346,7 +2416,8 @@ document.getElementById('confirm-yes')?.addEventListener('click', () => {
 });
 document.getElementById('confirm-no')?.addEventListener('click', () => {
   document.getElementById('confirm-overlay').style.display = 'none';
-  _confirmCb = null;
+  const cb = _confirmNoCb; _confirmCb = null; _confirmNoCb = null;
+  cb?.();
 });
 
 function _doNewGameReset() {
