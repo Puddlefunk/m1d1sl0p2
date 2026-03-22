@@ -41,19 +41,23 @@ canvas { display: block; }
 #chat-panel {
   position: fixed; bottom: 56px; left: 16px;
   width: 260px; z-index: 10; font-family: monospace; font-size: 11px;
+  border-radius: 6px; pointer-events: auto;
+  transition: background .18s, border-color .18s, box-shadow .18s;
+  border: 1px solid transparent;
+}
+#chat-panel.chat-open {
   background: linear-gradient(180deg, rgba(255,255,255,.06) 0%, rgba(255,255,255,.02) 30%, rgba(0,0,0,0) 60%), rgba(12,12,16,.92);
-  border: 1px solid rgba(255,255,255,.14); border-radius: 6px;
+  border-color: rgba(255,255,255,.14);
   backdrop-filter: blur(18px) brightness(.72);
   -webkit-backdrop-filter: blur(18px) brightness(.72);
   box-shadow: 0 4px 24px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
-  opacity: 1; pointer-events: auto;
-  transition: opacity 0.18s ease;
 }
 
 .chat-header {
-  display: flex; align-items: center; padding: 8px 10px 6px;
+  display: none; align-items: center; padding: 8px 10px 6px;
   border-bottom: 1px solid rgba(255,255,255,.07);
 }
+#chat-panel.chat-open .chat-header { display: flex; }
 .chat-title { flex: 1; font-size: 8px; letter-spacing: 4px; color: rgba(255,255,255,.25); text-transform: uppercase; }
 #chat-close-btn {
   background: none; border: none; padding: 0 0 0 6px;
@@ -63,9 +67,10 @@ canvas { display: block; }
 
 #chat-messages {
   max-height: 180px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 3px;
+  display: none; flex-direction: column; gap: 3px;
   padding: 8px 10px 6px; scrollbar-width: none;
 }
+#chat-panel.chat-open #chat-messages { display: flex; }
 #chat-messages::-webkit-scrollbar { display: none; }
 
 .chat-msg { color: rgba(255,255,255,.45); word-break: break-word; line-height: 1.45; }
@@ -529,9 +534,10 @@ body.mp-connected .mode-disconnect-btn { display: block; }
 /* Console input row — lives inside #chat-panel */
 #console-wrap {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px 8px;
-  border-top: 1px solid rgba(255,255,255,.07);
+  border-top: 1px solid transparent;
   transition: border-top-color .2s;
 }
+#chat-panel.chat-open #console-wrap { border-top-color: rgba(255,255,255,.07); }
 #console-wrap:focus-within { border-top-color: rgba(255,255,255,.22); }
 #console-prompt { color: rgba(255,255,255,.28); font-family: monospace; font-size: 12px; user-select: none; flex-shrink: 0; }
 #console-wrap:focus-within #console-prompt { color: rgba(255,255,255,.6); }
