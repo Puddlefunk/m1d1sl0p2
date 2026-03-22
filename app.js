@@ -50,6 +50,7 @@ let screenRipples    = [];
 let burnEffect       = null; // { startTime, hue, duration } — fractal corona clear
 let bpm = 0, clockTimes = [], pulseCount = 0, lastPulseTime = 0;
 let useMidiClock = false;
+let audibleChallenges = true;
 let internalBpm = 120, internalBpmActive = false, _tapTimes = [];
 let detectedLabel = '', detectedHue = 0, labelFade = 0;
 
@@ -587,7 +588,7 @@ class GameEngine {
       challengeNameEl.style.cursor = '';
       hintLabelEl.textContent = 'listen...';
       hintNotes = [];
-      setTimeout(() => playEarTrainingChord(chord.notes), 100);
+      if (audibleChallenges) setTimeout(() => playEarTrainingChord(chord.notes), 100);
     } else if (earTraining) {
       challengeNameEl.textContent = '?';
       challengeNameEl.style.color = 'rgba(255,255,255,0.35)';
@@ -603,6 +604,7 @@ class GameEngine {
       challengeNameEl.style.cursor = '';
       hintLabelEl.textContent = 'watch the ring';
       hintNotes = chord.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+      if (audibleChallenges) setTimeout(() => playEarTrainingChord(chord.notes), 100);
     }
     challengeNameEl.style.opacity = '1';
     timerBarEl.style.display = 'none';
@@ -1002,7 +1004,7 @@ class GameEngine {
 function saveState() {
   const data = {
     score, levelIdx, streakCount, streakLevels,
-    controlsBarPos, useMidiClock, internalBpm, internalBpmActive,
+    controlsBarPos, useMidiClock, audibleChallenges, internalBpm, internalBpmActive,
     fx: { ...FX },
     modules: [...registry.modules.values()].filter(m=>m.type!=='audio-out').map(m => ({ type:m.type, params:{...m.params} })),
     patches: registry.patches,
@@ -1024,6 +1026,7 @@ function loadState() {
     streakLevels = data.streakLevels ?? (data.streak ? Math.min(Math.floor(data.streak / 4), 4) : 0);
     if (data.controlsBarPos) controlsBarPos = data.controlsBarPos;
     if (data.useMidiClock !== undefined) useMidiClock = data.useMidiClock;
+    if (data.audibleChallenges !== undefined) audibleChallenges = data.audibleChallenges;
     if (data.internalBpm) { internalBpm = data.internalBpm; internalBpmActive = data.internalBpmActive ?? false; }
     if (internalBpmActive) _setBpmText(`${internalBpm} bpm`);
     if (data.fx) Object.assign(FX, data.fx);
@@ -2283,6 +2286,8 @@ multiplayer
   })
   .on('connected', () => {
     document.body.classList.add('mp-connected');
+    if (!_isCompetitive() && selectedMode !== 'coop') { selectedMode = 'coop'; }
+    _syncModePanel();
     consolePrint(_isCompetitive() ? 'opponent connected — fight!' : 'co-op partner connected', 4000);
     setTimeout(() => chatAppend(_isCompetitive() ? 'opponent connected' : 'partner connected', 'system'), 50);
     if (multiplayer.isHost && !multiplayer._registryWired) {
@@ -2307,7 +2312,9 @@ multiplayer
     }
   })
   .on('disconnected', () => {
-    consolePrint('co-op partner disconnected — solo mode', 5000);
+    if (_isCompetitive() || selectedMode === 'coop') { selectedMode = 'play'; }
+    _syncModePanel();
+    consolePrint('partner disconnected — solo mode', 5000);
     const msg = document.createElement('div');
     msg.className = 'chat-msg chat-system';
     msg.textContent = 'partner disconnected';
@@ -2371,7 +2378,7 @@ multiplayer
         if (selectedMode === 'tennis') {
           hintLabelEl.textContent = 'listen...';
           hintNotes = [];
-          setTimeout(() => playEarTrainingChord(game.challenge.notes), 200);
+          if (audibleChallenges) setTimeout(() => playEarTrainingChord(game.challenge.notes), 200);
         } else {
           hintLabelEl.textContent = '';
           hintNotes = game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
@@ -2425,7 +2432,7 @@ multiplayer
       challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
       hintLabelEl.textContent          = 'listen...';
       hintNotes = [];
-      setTimeout(() => playEarTrainingChord(notes), 100);
+      if (audibleChallenges) setTimeout(() => playEarTrainingChord(notes), 100);
     } else {
       gamePhase   = 'play';
       earTraining = et;
@@ -2649,7 +2656,12 @@ function _unlockEarMode() {
 }
 
 function _syncModePanel() {
-  document.querySelectorAll('.mode-opt').forEach(b => b.classList.toggle('active', b.dataset.mode === selectedMode));
+  const connected = multiplayer.isConnected;
+  document.querySelectorAll('.mode-opt').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === selectedMode);
+    if (['coop','competitive','tennis'].includes(b.dataset.mode))
+      b.classList.toggle('mode-opt-disabled', !connected);
+  });
   _syncModeToggles();
 }
 
@@ -2660,6 +2672,7 @@ function _syncModeToggles() {
   });
   document.getElementById('opt-keys')?.classList.toggle('on', showKeyboard);
   document.getElementById('opt-mods')?.classList.toggle('on', showModules);
+  document.getElementById('opt-audible')?.classList.toggle('on', audibleChallenges);
   document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
   document.getElementById('bpm-ext-btn')?.classList.toggle('active', useMidiClock);
   bpmDisplayEl?.classList.toggle('ext-active', useMidiClock);
@@ -2684,6 +2697,7 @@ function _toggleMidiClock() {
   _syncModeToggles();
   saveState();
 }
+document.getElementById('opt-audible')?.addEventListener('click', () => { audibleChallenges = !audibleChallenges; saveState(); _syncModeToggles(); });
 document.getElementById('opt-midiclock')?.addEventListener('click', _toggleMidiClock);
 document.getElementById('bpm-ext-btn')?.addEventListener('click', _toggleMidiClock);
 
@@ -2706,7 +2720,7 @@ document.getElementById('mode-disconnect-btn')?.addEventListener('click', () => 
 
 document.querySelectorAll('.mode-opt').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (btn.classList.contains('mode-opt-locked') || btn.classList.contains('mode-opt-soon')) return;
+    if (btn.classList.contains('mode-opt-locked') || btn.classList.contains('mode-opt-soon') || btn.classList.contains('mode-opt-disabled')) return;
     const newMode = btn.dataset.mode;
     if (newMode === selectedMode) { _closeModePanel(); return; }
     const go = () => { selectedMode = newMode; _syncModePanel(); _closeModePanel(); };
