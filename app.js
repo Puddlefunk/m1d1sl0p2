@@ -55,7 +55,9 @@ let levelIdx     = 0;
 let streakCount  = 0;  // consecutive hits toward next streak level (0–3; resets at 4)
 let streakLevels = 0;  // earned streak levels (0–4); reaching 5 triggers level up
 
-let earTraining = false;          // ear training mode active
+let earTraining  = false;          // ear training mode active
+let selectedMode = 'play';         // 'play' | 'ear' | 'competitive' | 'tennis'
+let remoteScore  = 0;              // opponent score in competitive/tennis modes
 let idleTimeouts = 0;             // consecutive no-attempt timeouts; auto-pauses at 10
 
 let _wrongPenaltyGiven = false;   // once per challenge
@@ -138,7 +140,7 @@ window.addEventListener('resize', resizeCanvas);
 const statusEl        = document.getElementById('status');
 const bpmEl           = document.getElementById('bpm');
 const modeBtnEl       = document.getElementById('mode-btn');
-const earBtnEl        = document.getElementById('ear-btn');
+const earBtnEl        = null; // removed — EAR is now a mode option in the mode panel
 const shopBtnEl       = document.getElementById('shop-btn');
 const hudEl           = document.getElementById('hud');
 const scoreValEl      = document.getElementById('score-val');
@@ -499,13 +501,7 @@ class GameEngine {
     challengeDeck = [];
     streakCount = 0; streakLevels = 0; idleTimeouts = 0;
 
-    if (earTraining) {
-      earBtnEl.textContent = 'PAUSE'; earBtnEl.classList.add('active');
-      modeBtnEl.textContent = 'PLAY'; modeBtnEl.classList.remove('active');
-    } else {
-      modeBtnEl.textContent = 'PAUSE'; modeBtnEl.classList.add('active');
-      earBtnEl.textContent = 'EAR'; earBtnEl.classList.remove('active');
-    }
+    modeBtnEl.textContent = 'PAUSE'; modeBtnEl.classList.add('active');
     hudEl.style.display = 'block';
 
     challengeEl.style.display = 'block';
@@ -529,7 +525,6 @@ class GameEngine {
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
     modeBtnEl.textContent = 'PLAY'; modeBtnEl.classList.remove('active');
-    earBtnEl.textContent = 'EAR';   earBtnEl.classList.remove('active');
   }
 
   startNextChallenge() {
@@ -708,7 +703,7 @@ class GameEngine {
     levelValEl.textContent = lv.label;
     this._flashLevelUp(streakTriggered);
     if (levelIdx >= 1) shopBtnEl.classList.remove('locked');
-    if (levelIdx >= 9) earBtnEl.classList.remove('locked');
+    if (levelIdx >= 9) _unlockEarMode();
     if (streakTriggered) {
       setTimeout(() => {
         if (gameMode === 'play') {
@@ -871,7 +866,7 @@ function loadState() {
     // Clear cable physics so springs initialise from correct jack positions
     patchSystem.cablePhysics.clear();
     if (levelIdx >= 1) shopBtnEl.classList.remove('locked');
-    if (levelIdx >= 9) earBtnEl.classList.remove('locked');
+    if (levelIdx >= 9) _unlockEarMode();
     return true;
   } catch(e) { return false; }
 }
@@ -1518,17 +1513,10 @@ function onNoteOff(note) {
 }
 
 modeBtnEl.addEventListener('click', () => {
-  if (multiplayer.isClient) return; // host controls the game
-  audioGraph.ensure();
-  if (gameMode==='play') gameEngine.stopGame();
-  else { earTraining = false; gameEngine.startGame(); }
-});
-
-earBtnEl.addEventListener('click', () => {
   if (multiplayer.isClient) return;
   audioGraph.ensure();
-  if (gameMode==='play' && earTraining) gameEngine.stopGame();
-  else { earTraining = true; gameEngine.startGame(); }
+  if (gameMode === 'play') gameEngine.stopGame();
+  else { earTraining = selectedMode === 'ear'; gameEngine.startGame(); }
 });
 
 challengeNameEl.addEventListener('click', () => {
@@ -1785,7 +1773,7 @@ function dispatchCommand(v) {
   }
   if (base==='iddqd') {
     levelIdx=GAME_CONFIG.levels.length-1; levelValEl.textContent=GAME_CONFIG.levels[levelIdx].label;
-    shopBtnEl.classList.remove('locked'); earBtnEl.classList.remove('locked');
+    shopBtnEl.classList.remove('locked'); _unlockEarMode();
     playLevelUpSound(); consolePrint('GOD MODE — max level, shop + ear training unlocked', ms); saveState(); return;
   }
   const tog = (flag, setter, name) => { setter(!flag); consolePrint(`${name}: ${!flag ? 'ON' : 'OFF'}`, ms); };
@@ -1800,9 +1788,9 @@ function dispatchCommand(v) {
   if (base==='keyguides')  { tog(showKeyGuides,      v => showKeyGuides = v,       'key guides'); return; }
   if (base==='eartraining') {
     if (levelIdx < 9) { consolePrint('unlocks at LEVEL 10', ms); return; }
-    if (gameMode==='play' && earTraining) gameEngine.stopGame();
-    else { earTraining = true; if (gameMode!=='play') gameEngine.startGame(); }
-    consolePrint(`ear training: ${earTraining ? 'ON' : 'OFF'}`, ms); return;
+    selectedMode = selectedMode === 'ear' ? 'play' : 'ear';
+    _syncModePanel();
+    consolePrint(`mode: ${selectedMode}`, ms); return;
   }
   if (base==='screenrip')  { tog(showScreenRipples,  v => showScreenRipples = v,   'screen ripples'); return; }
   if (base==='fxon')  { Object.keys(FX).forEach(k => FX[k] = true);  consolePrint('all effects ON', ms);  return; }
@@ -1874,11 +1862,13 @@ const multiplayer = new MultiplayerSystem();
 multiplayer
   .on('state-change', state => {
     const dot      = document.getElementById('mp-dot');
-    const shareBtn = document.getElementById('mp-share-btn');
+    const modeDot  = document.getElementById('mode-mp-dot');
+    const modeStat = document.getElementById('mode-mp-status');
     const overlay  = document.getElementById('mp-overlay');
-    if (dot) dot.className = 'mp-dot mp-' + state;
-    if (shareBtn) shareBtn.style.display = state === 'host' ? '' : 'none';
-    if (overlay)  overlay.style.display  = state === 'connecting' ? 'flex' : 'none';
+    if (dot)      dot.className      = 'mp-dot mp-' + state;
+    if (modeDot)  modeDot.className  = 'mp-dot mp-' + state;
+    if (modeStat) modeStat.textContent = { solo:'no partner', connecting:'connecting...', host:'partner connected', client:'connected to alice' }[state] ?? '';
+    if (overlay)  overlay.style.display = state === 'connecting' ? 'flex' : 'none';
     if (state === 'client') {
       shopBtnEl.classList.add('locked');
       document.body.classList.add('mp-client');
@@ -1944,7 +1934,7 @@ multiplayer
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
     hudEl.style.display    = 'block';
     shopBtnEl.classList.add('locked'); // client cannot shop
-    if (levelIdx >= 9) earBtnEl.classList.remove('locked');
+    if (levelIdx >= 9) _unlockEarMode();
     if (game.gameMode === 'play' && game.challenge) {
       currentChallenge = { ...game.challenge, h: rootHue(game.challenge.display) };
       gameMode    = 'play';
@@ -2003,13 +1993,14 @@ multiplayer
     feedbackAlpha = 1;
     if (currentChallenge) challengeNameEl.style.opacity = '0.35';
   })
-  .on('SCORE_UPDATE', ({ score: s, levelIdx: li, streakCount: sc, streakLevels: sl }) => {
+  .on('SCORE_UPDATE', ({ score: s, levelIdx: li, streakCount: sc, streakLevels: sl, remoteScore: rs }) => {
     if (!multiplayer.isClient) return;
     score = s; levelIdx = li; streakCount = sc; streakLevels = sl;
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
     gameEngine._updateStreakDisplay();
-    if (levelIdx >= 9) earBtnEl.classList.remove('locked');
+    if (levelIdx >= 9) _unlockEarMode();
+    if (rs !== undefined) { remoteScore = rs; _updateRemoteScore(); }
   })
   .on('GAME_MODE', ({ mode }) => {
     if (!multiplayer.isClient) return;
@@ -2040,6 +2031,94 @@ multiplayer
 
 multiplayer.init();
 
+// ─────────────────────────────────────────────────────────────
+// MODE PANEL
+// ─────────────────────────────────────────────────────────────
+const modePanelEl  = document.getElementById('mode-panel');
+const modePanelBtn = document.getElementById('mode-panel-btn');
+
+function _updateRemoteScore() {
+  const area = document.getElementById('remote-score-area');
+  if (!area) return;
+  const versus = selectedMode === 'competitive' || selectedMode === 'tennis';
+  area.style.display = (versus && multiplayer.isConnected) ? 'block' : 'none';
+  document.getElementById('remote-score-val').textContent = remoteScore.toLocaleString();
+  document.getElementById('remote-score-label').textContent = multiplayer.isHost ? 'bob' : 'alice';
+}
+
+function _unlockEarMode() {
+  document.getElementById('mode-opt-ear')?.classList.remove('mode-opt-locked');
+  document.querySelector('#mode-opt-ear .mode-opt-tag')?.remove();
+}
+
+function _syncModePanel() {
+  document.querySelectorAll('.mode-opt').forEach(b => b.classList.toggle('active', b.dataset.mode === selectedMode));
+  if (modePanelBtn) modePanelBtn.textContent = selectedMode.toUpperCase();
+}
+
+function _openModePanel()  { modePanelEl.classList.add('open');    modePanelBtn.classList.add('panel-open'); }
+function _closeModePanel() { modePanelEl.classList.remove('open'); modePanelBtn.classList.remove('panel-open'); }
+
+modePanelBtn?.addEventListener('click', () => modePanelEl.classList.contains('open') ? _closeModePanel() : _openModePanel());
+document.getElementById('mode-panel-close')?.addEventListener('click', _closeModePanel);
+
+document.addEventListener('click', e => {
+  if (!modePanelEl.classList.contains('open')) return;
+  if (modePanelEl.contains(e.target) || e.target === modePanelBtn) return;
+  _closeModePanel();
+});
+
+document.querySelectorAll('.mode-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('mode-opt-locked') || btn.classList.contains('mode-opt-soon')) return;
+    selectedMode = btn.dataset.mode;
+    _syncModePanel();
+    _closeModePanel();
+  });
+});
+
+// ── New game ──
+let _confirmCb = null;
+function _showConfirm(cb) {
+  _confirmCb = cb;
+  document.getElementById('confirm-overlay').style.display = 'flex';
+}
+document.getElementById('confirm-yes')?.addEventListener('click', () => {
+  document.getElementById('confirm-overlay').style.display = 'none';
+  _confirmCb?.(); _confirmCb = null;
+});
+document.getElementById('confirm-no')?.addEventListener('click', () => {
+  document.getElementById('confirm-overlay').style.display = 'none';
+  _confirmCb = null;
+});
+
+function _doNewGameReset() {
+  if (gameMode === 'play') gameEngine.stopGame();
+  score = 0; levelIdx = 0; streakCount = 0; streakLevels = 0;
+  scoreValEl.textContent = '0';
+  levelValEl.textContent = GAME_CONFIG.levels[0].label;
+  streakValEl.style.opacity = '0';
+  shopBtnEl.classList.add('locked');
+  document.getElementById('mode-opt-ear')?.classList.add('mode-opt-locked');
+  saveState();
+}
+
+document.getElementById('mode-new-game-btn')?.addEventListener('click', () => {
+  _closeModePanel();
+  const hasProgress = score > 0 || levelIdx > 0 || gameMode === 'play';
+  const go = () => { _doNewGameReset(); earTraining = selectedMode === 'ear'; gameEngine.startGame(); };
+  if (hasProgress) _showConfirm(go); else go();
+});
+
+// Share button now lives in mode panel
+document.getElementById('mode-share-btn')?.addEventListener('click', () => {
+  const url = multiplayer.getJoinUrl();
+  if (!url) { consolePrint('still connecting — try again in a moment', 3000); return; }
+  navigator.clipboard.writeText(url)
+    .then(()  => consolePrint('invite link copied!\nsend it to your partner', 5000))
+    .catch(()  => consolePrint(`invite link:\n${url}`, 15000));
+});
+
 // ── Chat ──
 const chatMessagesEl = document.getElementById('chat-messages');
 
@@ -2057,13 +2136,6 @@ function chatAppend(text, side) {
 
 multiplayer.on('CHAT', ({ text }) => chatAppend(text, multiplayer.isHost ? 'bob' : 'alice'));
 
-// Share button — copies join URL to clipboard
-document.getElementById('mp-share-btn')?.addEventListener('click', () => {
-  const url = multiplayer.getJoinUrl();
-  if (!url) return;
-  navigator.clipboard.writeText(url).then(() => consolePrint('invite link copied!\nsend it to your partner', 5000))
-    .catch(() => consolePrint(`invite link:\n${url}`, 15000));
-});
 noteInputSystem.register(new PianoLayout());
 noteInputSystem.register(new FolLayout());
 

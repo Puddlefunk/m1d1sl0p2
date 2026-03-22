@@ -15,7 +15,6 @@
 
 <div id="mp-ui">
   <span id="mp-dot" class="mp-dot mp-solo"></span>
-  <button id="mp-share-btn" style="display:none">SHARE</button>
 </div>
 
 <div id="mp-overlay">
@@ -39,14 +38,78 @@
       <option value="lydian">LYDIAN</option>
     </select>
   </div>
-  <button id="ear-btn" class="locked" title="Ear Training — unlocks at Level 10">EAR</button>
+  <button id="mode-panel-btn">MODE</button>
   <button id="shop-btn" class="locked" title="Unlocks at Level 2">SHOP</button>
+</div>
+
+<!-- Mode panel -->
+<div id="mode-panel">
+  <div class="mode-panel-header">
+    <span class="mode-panel-title">GAME MODE</span>
+    <button id="mode-panel-close">✕</button>
+  </div>
+
+  <div class="mode-section">
+    <div class="mode-section-label">SOLO</div>
+    <button class="mode-opt active" data-mode="play">
+      <span class="mode-opt-name">PLAY</span>
+      <span class="mode-opt-desc">chord challenges</span>
+    </button>
+    <button class="mode-opt mode-opt-locked" data-mode="ear" id="mode-opt-ear">
+      <span class="mode-opt-name">EAR</span>
+      <span class="mode-opt-desc">listen and identify</span>
+      <span class="mode-opt-tag">unlocks lv 10</span>
+    </button>
+  </div>
+
+  <div class="mode-section">
+    <div class="mode-section-label">VERSUS</div>
+    <button class="mode-opt mode-opt-soon" data-mode="competitive">
+      <span class="mode-opt-name">COMPETITIVE</span>
+      <span class="mode-opt-desc">first to solve — head to head</span>
+      <span class="mode-opt-tag">soon</span>
+    </button>
+    <button class="mode-opt mode-opt-soon" data-mode="tennis">
+      <span class="mode-opt-name">TENNIS</span>
+      <span class="mode-opt-desc">serve and return</span>
+      <span class="mode-opt-tag">soon</span>
+    </button>
+  </div>
+
+  <div class="mode-section">
+    <div class="mode-section-label">PARTNER</div>
+    <div class="mode-partner-row">
+      <span id="mode-mp-dot" class="mp-dot mp-solo"></span>
+      <span id="mode-mp-status">no partner</span>
+    </div>
+    <button id="mode-share-btn">COPY INVITE LINK</button>
+  </div>
+
+  <div class="mode-section mode-section-newgame">
+    <button id="mode-new-game-btn">NEW GAME</button>
+  </div>
+</div>
+
+<!-- New game confirm -->
+<div id="confirm-overlay">
+  <div id="confirm-box">
+    <div id="confirm-msg">start a new game?</div>
+    <div id="confirm-sub">score and progress will be reset</div>
+    <div id="confirm-btns">
+      <button id="confirm-yes">START</button>
+      <button id="confirm-no">CANCEL</button>
+    </div>
+  </div>
 </div>
 
 <button id="midi-learn-btn" title="MIDI Learn: click, then click a knob, then turn an encoder">MIDI LEARN</button>
 <div id="custom-btns"></div>
 
 <div id="hud">
+  <div id="remote-score-area">
+    <div id="remote-score-label">bob</div>
+    <div id="remote-score-val">0</div>
+  </div>
   <div id="score-val">0</div>
   <div id="level-val">LEVEL 1</div>
   <div id="streak-val"></div>
@@ -76,16 +139,16 @@
   <div id="shop-items"></div>
 </div>
 
+<div id="chat-panel">
+  <div id="chat-hint">type ~help for commands</div>
+  <div id="chat-messages"></div>
+</div>
+
 <div id="console-wrap">
   <span id="console-prompt">&gt;</span>
   <input id="cheat-input" autocomplete="off" spellcheck="false" placeholder="message · ~help">
 </div>
 <div id="console-out"></div>
-
-<div id="chat-panel">
-  <div id="chat-hint">type ~help for commands</div>
-  <div id="chat-messages"></div>
-</div>
 
 <div id="levelup"></div>
 <div id="label"></div>
