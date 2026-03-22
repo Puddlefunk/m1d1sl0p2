@@ -2046,15 +2046,20 @@ class NoteInputSystem {
 // SECTION 18 — CONSOLE COMMANDS
 // ─────────────────────────────────────────────────────────────
 function consolePrint(msg, _ms) {
-  // Append as a persistent entry in the console/chat panel — no timeout
   const el = document.createElement('div');
   el.className = 'chat-msg chat-system';
   el.textContent = msg;
   chatMessagesEl.appendChild(el);
   if (chatMessagesEl.children.length > 80) chatMessagesEl.firstChild.remove();
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-  clearTimeout(_chatHideTimer); // don't auto-hide while fresh console output is showing
-  chatPanelEl.classList.add('chat-open');
+  if (msg.includes('\n')) {
+    // Multi-line reference content — keep panel open until manually closed
+    clearTimeout(_chatHideTimer);
+    chatPanelEl.classList.add('chat-open');
+  } else {
+    // Single-line acknowledgement — fade back like a chat message
+    _chatShow();
+  }
 }
 
 const BTNS_KEY = 'm1d1sl0p2_btns';
@@ -2088,7 +2093,7 @@ function dispatchCommand(v) {
   if (base==='resetscore') { score=0; scoreValEl.textContent='0'; streakCount=0; streakLevels=0; streakValEl.style.opacity='0'; consolePrint('Score reset.', ms); saveState(); return; }
   if (base==='resetmods') { for(const id of [...registry.modules.keys()])if(id!=='audio-out-0')registry.removeModule(id); const oid=registry.addModule('osc-sine'); registry.addPatch(oid,'audio','audio-out-0','in'); audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return; }
   if (base==='idkfa') { score+=5000; scoreValEl.textContent=score.toLocaleString(); if(shopSystem?.el.classList.contains('open'))shopSystem.render(score); consolePrint('+5000 pts', ms); saveState(); return; }
-  if (base==='flash') { triggerPhosphorFlash(); consolePrint('✦ phosphor', ms); return; }
+  if (base==='flash') { triggerPhosphorFlash(); consolePrint('✦ flash', ms); return; }
   if (base==='burn')  { spawnBurnEffect(currentChallenge?.h ?? folPhosphorHue); consolePrint('✦ burn', ms); return; }
   if (base==='streak') { triggerStreakFlash(); consolePrint('✦ streak', ms); return; }
   if (base==='labels') { folNodeLabelStart = performance.now(); return; }
