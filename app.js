@@ -1402,20 +1402,32 @@ function drawFlowerLightning() {
     const wps = [[cx, cy], ...hops.map(h => [h.x, h.y]), [ex, ey]];
     boltData.push({ wps, h, midi });
 
-    // Pre-ring: center → first hop (or endpoint if not yet at ring1)
-    //   Faint ghost — signal before amplification
-    const ring1Tgt = hasHops ? [hops[0].x, hops[0].y] : [ex, ey];
+    // Ring1 crossing point on the straight-line angle (used when no hops)
+    const ring1x = cx + Math.cos(angle) * ring1R;
+    const ring1y = cy + Math.sin(angle) * ring1R;
+    const pastRing1 = front >= ring1R;
+
+    if (!pastRing1 && !hasHops) {
+      // Bolt still growing toward ring1 — draw ghost only
+      const prePts = [[cx, cy]];
+      _folSubdivSeg(cx, cy, ex, ey, chaos, depth, prePts);
+      folStrokePath(prePts, h, fullAlpha * 0.38, fullWidth * 0.40, flicker);
+      return;
+    }
+
+    // Pre-ring: ghost from center → first hop (or ring1 crossing)
+    const preTarget = hasHops ? [hops[0].x, hops[0].y] : [ring1x, ring1y];
     const prePts = [[cx, cy]];
-    _folSubdivSeg(cx, cy, ring1Tgt[0], ring1Tgt[1], chaos, depth, prePts);
+    _folSubdivSeg(cx, cy, preTarget[0], preTarget[1], chaos, depth, prePts);
     folStrokePath(prePts, h, fullAlpha * 0.38, fullWidth * 0.40, flicker);
 
-    if (!hasHops) return; // bolt still travelling to ring1 — nothing to amplify yet
-
-    // Post-ring: first hop → remaining hops → endpoint
-    //   Full strength — amplified by the node ring
-    const postPts = [[hops[0].x, hops[0].y]];
-    const remainingWps = [...hops.slice(1).map(h => [h.x, h.y]), [ex, ey]];
-    let px = hops[0].x, py = hops[0].y;
+    // Post-ring: full strength from first hop (or ring1) → endpoint
+    const postStart = hasHops ? [hops[0].x, hops[0].y] : [ring1x, ring1y];
+    const postPts = [postStart];
+    const remainingWps = hasHops
+      ? [...hops.slice(1).map(h => [h.x, h.y]), [ex, ey]]
+      : [[ex, ey]];
+    let px = postStart[0], py = postStart[1];
     for (const [nx, ny] of remainingWps) {
       _folSubdivSeg(px, py, nx, ny, chaos, depth, postPts);
       px = nx; py = ny;
