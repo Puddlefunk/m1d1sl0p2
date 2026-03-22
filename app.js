@@ -428,8 +428,7 @@ function drawKeyboard(kCtx) {
   const fS=Math.max(8,Math.round(kW*0.3)), bfS=Math.max(6,Math.round(bW*0.42));
   const lS=Math.max(7,Math.round(kW*0.25)), blS=Math.max(6,Math.round(bW*0.34));
   const k2l={}; for(const [k,v] of Object.entries(kbMap)) k2l[v]=k===';'?';':k.toUpperCase();
-  kCtx.save(); kCtx.font='13px monospace'; kCtx.textAlign='left'; kCtx.fillStyle='rgba(255,255,255,0.30)';
-  kCtx.fillText(`Z ◄  C${kbOctave}  ► X`,sX,sY-10); kCtx.restore();
+  if (FX.keyGuides) { kCtx.save(); kCtx.font='13px monospace'; kCtx.textAlign='left'; kCtx.fillStyle='rgba(255,255,255,0.30)'; kCtx.fillText(`Z ◄  C${kbOctave}  ► X`,sX,sY-10); kCtx.restore(); }
   let wi=0;
   for (let oct=0;oct<NO;oct++) for (const pc of WP) {
     const x=sX+wi*kW, m=(kbOctave+oct)*12+pc;
@@ -1986,9 +1985,11 @@ multiplayer
     const modeDot  = document.getElementById('mode-mp-dot');
     const modeStat = document.getElementById('mode-mp-status');
     const overlay  = document.getElementById('mp-overlay');
-    if (dot)      dot.className      = 'mp-dot mp-' + state;
-    if (modeDot)  modeDot.className  = 'mp-dot mp-' + state;
-    if (modeStat) modeStat.textContent = { solo:'no partner', connecting:'connecting...', host:'partner connected', client:'connected to alice' }[state] ?? '';
+    // host = PeerJS registered but no partner yet → show as solo until conn is open
+    const dotState = (state === 'host' && !multiplayer.conn?.open) ? 'solo' : state;
+    if (dot)      dot.className      = 'mp-dot mp-' + dotState;
+    if (modeDot)  modeDot.className  = 'mp-dot mp-' + dotState;
+    if (modeStat) modeStat.textContent = { solo:'no partner', connecting:'connecting...', host:'partner connected', client:'connected to alice' }[dotState] ?? '';
     if (overlay)  overlay.style.display = state === 'connecting' ? 'flex' : 'none';
     // mp-client lockout is applied in HELLO handler once we know the mode
   })
@@ -2505,17 +2506,19 @@ function setControlsPos(pos) {
   const barH = gc ? gc.getBoundingClientRect().height || 36 : 36;
   if (controlsBarPos === 'below') {
     kbRiseOffset = Math.round(barH + 10);
-    if (gc) { gc.style.top = 'auto'; gc.style.bottom = '12px'; }
-    if (mp) { mp.style.top = 'auto'; mp.style.bottom = '52px'; }
+    if (gc) { gc.style.top = 'auto'; gc.style.bottom = '12px'; gc.style.left = '50%'; gc.style.transform = 'translateX(-50%)'; }
+    if (mp) { mp.style.top = 'auto'; mp.style.bottom = '52px'; mp.style.left = '50%'; mp.style.transform = 'translateX(-50%)'; }
   } else if (controlsBarPos === 'above') {
     kbRiseOffset = 0;
     const fromBot = Math.round(kH + 18);
-    if (gc) { gc.style.top = 'auto'; gc.style.bottom = `${fromBot}px`; }
-    if (mp) { mp.style.top = 'auto'; mp.style.bottom = `${fromBot + barH + 8}px`; }
+    const maxW = Math.min(canvas.width - 60, 720);
+    const kbRight = (canvas.width + maxW) / 2; // right edge of keyboard in px from left
+    if (gc) { gc.style.top = 'auto'; gc.style.bottom = `${fromBot}px`; gc.style.left = `${kbRight - (gc.getBoundingClientRect().width || 300)}px`; gc.style.transform = 'none'; }
+    if (mp) { mp.style.top = 'auto'; mp.style.bottom = `${fromBot + barH + 8}px`; mp.style.left = `${kbRight - 280}px`; mp.style.transform = 'none'; }
   } else { // 'top'
     kbRiseOffset = 0;
-    if (gc) { gc.style.bottom = 'auto'; gc.style.top = '12px'; }
-    if (mp) { mp.style.bottom = 'auto'; mp.style.top = '52px'; }
+    if (gc) { gc.style.bottom = 'auto'; gc.style.top = '12px'; gc.style.left = '50%'; gc.style.transform = 'translateX(-50%)'; }
+    if (mp) { mp.style.bottom = 'auto'; mp.style.top = '52px'; mp.style.left = '50%'; mp.style.transform = 'translateX(-50%)'; }
   }
   document.querySelectorAll('.ctrl-pos-opt').forEach(b => b.classList.toggle('active', b.dataset.pos === controlsBarPos));
 }
