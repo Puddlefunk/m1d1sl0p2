@@ -2710,7 +2710,6 @@ function _syncModeToggles() {
   document.getElementById('opt-mods')?.classList.toggle('on', showModules);
   document.getElementById('opt-audible')?.classList.toggle('on', audibleChallenges);
   document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
-  document.getElementById('bpm-ext-btn')?.classList.toggle('active', useMidiClock);
   bpmDisplayEl?.classList.toggle('ext-active', useMidiClock);
 }
 
@@ -2735,7 +2734,6 @@ function _toggleMidiClock() {
 }
 document.getElementById('opt-audible')?.addEventListener('click', () => { audibleChallenges = !audibleChallenges; saveState(); _syncModeToggles(); });
 document.getElementById('opt-midiclock')?.addEventListener('click', _toggleMidiClock);
-document.getElementById('bpm-ext-btn')?.addEventListener('click', _toggleMidiClock);
 
 function _openModePanel()  { setControlsPos(controlsBarPos); modePanelEl.classList.add('open'); modePanelBtn.classList.add('panel-open'); }
 function _closeModePanel() { modePanelEl.classList.remove('open'); modePanelBtn.classList.remove('panel-open'); }
