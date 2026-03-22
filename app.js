@@ -36,9 +36,9 @@ const SCALE_CHORD_7TH_QUALITIES = {
   mixolydian: ['7','m7','m7b5','maj7','m7','m7','maj7'],
 };
 const _Q7_SYM  = { 'maj7':'M7',  'm7':'m7', '7':'7', 'm7b5':'m7b5' };
-const _Q9_SYM  = { 'maj7':'M9',  'm7':'m9', '7':'9', 'm7b5': null  };
-const _Q7_DISP = { 'maj7':'maj7','m7':'m7', '7':'7', 'm7b5':'m7b5' };
-const _Q9_DISP = { 'maj7':'maj9','m7':'m9', '7':'9', 'm7b5': null  };
+const _Q9_SYM  = { 'maj7':'M9',   'm7':'m9', '7':'9', 'm7b5':'m9b5' };
+const _Q7_DISP = { 'maj7':'maj7', 'm7':'m7', '7':'7', 'm7b5':'m7b5' };
+const _Q9_DISP = { 'maj7':'maj9', 'm7':'m9', '7':'9', 'm7b5':'m9b5' };
 const SCALE_DIFF_MAP = [1,1,1,1,1,1,1];
 
 let gameMode         = 'practice';
@@ -648,11 +648,6 @@ class GameEngine {
   _buildDeck() {
     const maxDiff = currentLevel().maxDiff;
     let src = (gameKeyPool || CHORD_POOL).filter(c => c.diff <= maxDiff);
-    // At high levels, supplement scale key pool with hard chords from CHORD_POOL
-    if (gameKeyPool && maxDiff >= 6) {
-      const hard = CHORD_POOL.filter(c => c.diff >= 6 && c.diff <= maxDiff);
-      src = [...src, ...hard];
-    }
     const groups = [];
     for (let d = 1; d <= maxDiff; d++) {
       const g = [...src.filter(c => c.diff === d)];
