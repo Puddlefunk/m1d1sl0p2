@@ -48,6 +48,7 @@ let synthGlowH       = 0;
 let synthRippleBoxes = [];
 let screenRipples    = [];
 let bpm = 0, clockTimes = [], pulseCount = 0, lastPulseTime = 0;
+let useMidiClock = false;
 let detectedLabel = '', detectedHue = 0, labelFade = 0;
 
 let score        = 0;
@@ -902,7 +903,7 @@ class GameEngine {
 function saveState() {
   const data = {
     score, levelIdx, streakCount, streakLevels,
-    controlsBarPos,
+    controlsBarPos, useMidiClock,
     fx: { ...FX },
     modules: [...registry.modules.values()].filter(m=>m.type!=='audio-out').map(m => ({ type:m.type, params:{...m.params} })),
     patches: registry.patches,
@@ -923,6 +924,7 @@ function loadState() {
     streakCount  = data.streakCount  ?? 0;
     streakLevels = data.streakLevels ?? (data.streak ? Math.min(Math.floor(data.streak / 4), 4) : 0);
     if (data.controlsBarPos) controlsBarPos = data.controlsBarPos;
+    if (data.useMidiClock !== undefined) useMidiClock = data.useMidiClock;
     if (data.fx) Object.assign(FX, data.fx);
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
@@ -2243,6 +2245,7 @@ function _syncModeToggles() {
     const key = btn.dataset.fx;
     btn.classList.toggle('on', !!FX[key]);
   });
+  document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
 }
 
 document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
@@ -2252,6 +2255,13 @@ document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
     _syncModeToggles();
     saveState();
   });
+});
+
+document.getElementById('opt-midiclock')?.addEventListener('click', () => {
+  useMidiClock = !useMidiClock;
+  if (!useMidiClock) { bpm = 0; clockTimes = []; bpmEl.textContent = ''; }
+  _syncModeToggles();
+  saveState();
 });
 
 function _openModePanel()  { modePanelEl.classList.add('open');    modePanelBtn.classList.add('panel-open'); }
@@ -2374,11 +2384,12 @@ if (!navigator.requestMIDIAccess) {
     function onMidiMessage(e) {
       const [cmd,note,velocity]=e.data;
       if (cmd===0xF8) {
+        if (!useMidiClock) return;
         clockTimes.push(performance.now()); if(clockTimes.length>48)clockTimes.shift();
         if(clockTimes.length>=4){const rc=clockTimes.slice(-24);if(rc.length>=2){const avg=(rc.at(-1)-rc[0])/(rc.length-1);bpm=Math.round(60000/(avg*24));bpmEl.textContent=bpm>0?`${bpm} bpm`:'';}}
         pulseCount=(pulseCount+1)%24; lastPulseTime=performance.now(); return;
       }
-      if (cmd===0xFC){bpm=0;bpmEl.textContent='';return;}
+      if (cmd===0xFC){ if(useMidiClock){bpm=0;bpmEl.textContent='';} return;}
       if (cmd===0xFA||cmd===0xFB) return;
       if ((cmd&0xf0)===0xB0) {
         if (midiLearnMode&&midiLearnParam) {
