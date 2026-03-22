@@ -26,7 +26,7 @@ const SCALE_CHORD_QUALITIES = {
   lydian:     ['major','major','minor','dim','major','minor','minor'],
   mixolydian: ['major','minor','dim','major','minor','minor','major'],
 };
-const SCALE_DIFF_MAP = [1,2,3,1,1,2,3];
+const SCALE_DIFF_MAP = [1,1,1,1,1,1,1];
 
 let gameMode         = 'practice';
 let gamePhase        = 'hint';
