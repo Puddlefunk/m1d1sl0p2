@@ -59,7 +59,7 @@ let streakLevels = 0;  // earned streak levels (0–4); reaching 5 triggers leve
 
 let keyboardAlpha = 1;             // fades 0↔1 on keyboard show/hide
 let earTraining  = false;          // ear training mode active
-let selectedMode = 'play';         // 'play' | 'ear' | 'competitive' | 'tennis'
+let selectedMode = 'coop';         // 'play' | 'ear' | 'coop' | 'competitive' | 'tennis'
 let remoteScore  = 0;              // opponent score in competitive/tennis modes
 let roundsPlayed = 0;              // competitive: shared round counter for level advance
 let lockedOut      = false;        // competitive: host locked out this round
@@ -510,7 +510,7 @@ class GameEngine {
     challengeDeck = [];
     streakCount = 0; streakLevels = 0; idleTimeouts = 0;
     lockedOut = false; remoteLockedOut = false;
-    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+    if (_isCompetitive() && multiplayer.isConnected) {
       remoteScore = 0; roundsPlayed = 0;
       _updateRemoteScore();
     }
@@ -603,7 +603,7 @@ class GameEngine {
     if (gameMode !== 'play' || gamePhase !== 'play' || !currentChallenge) return;
     const required = currentChallenge.notes.map(normPc);
 
-    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+    if (_isCompetitive() && multiplayer.isConnected) {
       const localPCs  = new Set([...activeNotes.keys()].map(m => normPc(midiToPitchClass(m))));
       const remotePCs = new Set([...remoteNotes.keys()].map(m => normPc(midiToPitchClass(m))));
       if (!lockedOut       && required.every(pc => localPCs.has(pc)))  { this.triggerSuccess('host');   return; }
@@ -663,7 +663,7 @@ class GameEngine {
     else           { chordBurstStrength = Math.max(0.08, chordBurstStrength * 0.55); }
     playSuccessSound(currentChallenge.notes);
 
-    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+    if (_isCompetitive() && multiplayer.isConnected) {
       this._addScoreCompetitive(winner);
       const iWon = winner === 'host';
       if (iWon) {
@@ -703,7 +703,7 @@ class GameEngine {
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
 
-    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+    if (_isCompetitive() && multiplayer.isConnected) {
       // Competitive timeout = draw, no score change, clear lockouts
       lockedOut = false; remoteLockedOut = false;
       if (reason === 'timeout') {
@@ -1624,7 +1624,7 @@ function onNoteOff(note) {
   multiplayer.send('NOTE_OFF', { midi: note });
   runDetection(); refreshNoteDisplay();
   if (!multiplayer.isClient && gameMode==='play'&&gamePhase==='play'&&activeNotes.size===0&&remoteNotes.size===0) {
-    if (selectedMode !== 'competitive') {
+    if (!_isCompetitive()) {
       if (phrasePeakNotes>=(currentChallenge?.notes.length??3)&&!phraseMatched) gameEngine.triggerFail();
       phrasePeakNotes=0;
     }
@@ -1996,8 +1996,8 @@ multiplayer
   })
   .on('connected', () => {
     document.body.classList.add('mp-connected');
-    consolePrint(selectedMode === 'competitive' ? 'opponent connected — fight!' : 'co-op partner connected', 4000);
-    setTimeout(() => chatAppend(selectedMode === 'competitive' ? 'opponent connected' : 'partner connected', 'system'), 50);
+    consolePrint(_isCompetitive() ? 'opponent connected — fight!' : 'co-op partner connected', 4000);
+    setTimeout(() => chatAppend(_isCompetitive() ? 'opponent connected' : 'partner connected', 'system'), 50);
     if (multiplayer.isHost && !multiplayer._registryWired) {
       multiplayer._registryWired = true;
       const helloPayload = {
@@ -2008,7 +2008,7 @@ multiplayer
             : null,
         },
       };
-      if (selectedMode !== 'competitive') {
+      if (!_isCompetitive()) {
         // Co-op only: mirror registry
         helloPayload.registry = multiplayer.snapshotRegistry(registry);
         registry.addEventListener('module-added',   e => { if (!_mpRemote) multiplayer.send('MODULE_ADD', e.detail); });
@@ -2064,7 +2064,7 @@ multiplayer
     hudEl.style.display = 'block';
     if (levelIdx >= 9) _unlockEarMode();
 
-    if (selectedMode === 'competitive') {
+    if (_isCompetitive()) {
       // Independent synths — no registry mirror, full client control
       document.body.classList.remove('mp-client');
       score = 0; remoteScore = game.score;
@@ -2141,7 +2141,7 @@ multiplayer
     if (!multiplayer.isClient) return;
     gamePhase = 'success';
     const rootPos = notePos(pcToMidi(normPc(currentChallenge?.notes[0] ?? 'C')));
-    if (selectedMode === 'competitive') {
+    if (_isCompetitive()) {
       const iWon = winner === 'client'; // client = Bob, so winner==='client' means Bob won
       feedbackEl.textContent      = iWon ? '✓ you got it' : '✗ they got it';
       feedbackEl.style.color      = iWon ? `hsl(${h},85%,75%)` : '#ff6060';
@@ -2210,26 +2210,26 @@ multiplayer
   })
   // ── Client mirrors registry changes ──
   .on('MODULE_ADD', ({ id, type, params }) => {
-    if (selectedMode === 'competitive') return;
+    if (_isCompetitive()) return;
     _mpRemote = true;
     registry.modules.set(id, { id, type, params: { ...params } });
     registry.dispatchEvent(new CustomEvent('module-added', { detail: { id, type, params } }));
     _mpRemote = false;
   })
   .on('MODULE_REMOVE', ({ id }) => {
-    if (selectedMode === 'competitive') return;
+    if (_isCompetitive()) return;
     _mpRemote = true;
     registry.removeModule(id);
     _mpRemote = false;
   })
   .on('PARAM_CHANGE', ({ id, param, value }) => {
-    if (selectedMode === 'competitive') return;
+    if (_isCompetitive()) return;
     _mpRemote = true;
     registry.setParam(id, param, value);
     _mpRemote = false;
   })
   .on('PATCH_CHANGE', ({ patches }) => {
-    if (selectedMode === 'competitive') return;
+    if (_isCompetitive()) return;
     _mpRemote = true;
     registry.patches = patches.map(p => ({ ...p }));
     registry.dispatchEvent(new CustomEvent('patch-changed', { detail: { patches: registry.patches } }));
@@ -2247,7 +2247,7 @@ const modePanelBtn = document.getElementById('mode-panel-btn');
 function _updateRemoteScore() {
   const area = document.getElementById('remote-score-area');
   if (!area) return;
-  const versus = selectedMode === 'competitive' || selectedMode === 'tennis';
+  const versus = _isCompetitive();
   area.style.display = (versus && multiplayer.isConnected) ? 'block' : 'none';
   document.getElementById('remote-score-val').textContent = remoteScore.toLocaleString();
   document.getElementById('remote-score-label').textContent = multiplayer.isHost ? 'bob' : 'alice';
@@ -2299,20 +2299,46 @@ document.addEventListener('click', e => {
   _closeModePanel();
 });
 
+document.getElementById('mode-disconnect-btn')?.addEventListener('click', () => {
+  _closeModePanel();
+  _showConfirm(_disconnect, { msg: 'disconnect from partner?', sub: 'your current synth state will be kept', yes: 'DISCONNECT' });
+});
+
 document.querySelectorAll('.mode-opt').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.classList.contains('mode-opt-locked') || btn.classList.contains('mode-opt-soon')) return;
-    selectedMode = btn.dataset.mode;
-    _syncModePanel();
-    _closeModePanel();
+    const newMode = btn.dataset.mode;
+    if (newMode === selectedMode) { _closeModePanel(); return; }
+    const switchingCompetitiveness = multiplayer.isConnected && (_isCompetitive(newMode) !== _isCompetitive(selectedMode));
+    const go = () => { selectedMode = newMode; _syncModePanel(); _closeModePanel(); };
+    if (switchingCompetitiveness) {
+      const toComp = _isCompetitive(newMode);
+      _showConfirm(() => { _disconnect(); go(); }, {
+        msg: toComp ? 'switch to competitive?' : 'switch to co-op?',
+        sub: toComp ? 'your partner will be disconnected and synths split' : 'your partner will be disconnected and synths merged',
+        yes: 'SWITCH',
+      });
+    } else {
+      go();
+    }
   });
 });
 
 // ── New game ──
 let _confirmCb = null;
-function _showConfirm(cb) {
+function _showConfirm(cb, { msg = 'are you sure?', sub = '', yes = 'YES' } = {}) {
   _confirmCb = cb;
+  document.getElementById('confirm-msg').textContent  = msg;
+  document.getElementById('confirm-sub').textContent  = sub;
+  document.getElementById('confirm-yes').textContent  = yes;
   document.getElementById('confirm-overlay').style.display = 'flex';
+}
+
+function _isCompetitive(mode) { return (mode ?? selectedMode) === 'competitive' || (mode ?? selectedMode) === 'tennis'; }
+
+function _disconnect() {
+  multiplayer.conn?.close();
+  multiplayer.peer?.disconnect();
 }
 document.getElementById('confirm-yes')?.addEventListener('click', () => {
   document.getElementById('confirm-overlay').style.display = 'none';
@@ -2338,7 +2364,7 @@ document.getElementById('mode-new-game-btn')?.addEventListener('click', () => {
   _closeModePanel();
   const hasProgress = score > 0 || levelIdx > 0 || gameMode === 'play';
   const go = () => { _doNewGameReset(); earTraining = selectedMode === 'ear'; gameEngine.startGame(); };
-  if (hasProgress) _showConfirm(go); else go();
+  if (hasProgress) _showConfirm(go, { msg: 'start a new game?', sub: 'score and progress will be reset', yes: 'START' }); else go();
 });
 
 // Share button now lives in mode panel
