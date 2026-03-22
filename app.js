@@ -435,7 +435,7 @@ function drawKeyboard(kCtx) {
     kCtx.beginPath(); kCtx.rect(x+0.5,sY,kW-1,kH);
     kCtx.fillStyle=aPCs.has(pc)?`hsla(${hue(m)},75%,55%,0.45)`:rPCs.has(pc)?'hsla(185,75%,55%,0.45)':cPCs.has(pc)?`hsla(${hue(m)},65%,22%,0.9)`:pc===0?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.05)';
     kCtx.fill(); kCtx.strokeStyle='rgba(255,255,255,0.1)'; kCtx.lineWidth=0.5; kCtx.stroke();
-    const lb=k2l[m]; if(lb){kCtx.font=`${lS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=(aPCs.has(pc)||rPCs.has(pc))?'rgba(0,0,0,0.55)':'rgba(255,255,255,0.30)';kCtx.fillText(lb,x+kW/2,sY+lS+3);}
+    const lb=k2l[m]; if(lb && FX.keyGuides){kCtx.font=`${lS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=(aPCs.has(pc)||rPCs.has(pc))?'rgba(0,0,0,0.55)':'rgba(255,255,255,0.30)';kCtx.fillText(lb,x+kW/2,sY+lS+3);}
     if(aPCs.has(pc)||rPCs.has(pc)||cPCs.has(pc)){kCtx.font=`bold ${fS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(pc)?`hsl(${hue(m)},90%,88%)`:rPCs.has(pc)?'hsl(185,90%,88%)':`hsla(${hue(m)},85%,70%,0.9)`;kCtx.fillText(NOTE_NAMES[pc],x+kW/2,sY+kH-7);}
     wi++;
   }
@@ -446,7 +446,7 @@ function drawKeyboard(kCtx) {
       kCtx.beginPath(); kCtx.rect(bx,sY,bW,bH);
       kCtx.fillStyle=aPCs.has(bPc)?`hsla(${hue(m)},75%,48%,0.45)`:rPCs.has(bPc)?'hsla(185,75%,48%,0.45)':cPCs.has(bPc)?`hsla(${hue(m)},65%,18%,1)`:'rgb(12,12,12)';
       kCtx.fill(); kCtx.strokeStyle='rgba(255,255,255,0.08)'; kCtx.lineWidth=0.5; kCtx.stroke();
-      const lb=k2l[m]; if(lb){kCtx.font=`${blS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=(aPCs.has(bPc)||rPCs.has(bPc))?'rgba(0,0,0,0.5)':'rgba(255,255,255,0.38)';kCtx.fillText(lb,bx+bW/2,sY+blS+4);}
+      const lb=k2l[m]; if(lb && FX.keyGuides){kCtx.font=`${blS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=(aPCs.has(bPc)||rPCs.has(bPc))?'rgba(0,0,0,0.5)':'rgba(255,255,255,0.38)';kCtx.fillText(lb,bx+bW/2,sY+blS+4);}
       if(aPCs.has(bPc)||rPCs.has(bPc)||cPCs.has(bPc)){kCtx.font=`bold ${bfS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(bPc)?`hsl(${hue(m)},90%,88%)`:rPCs.has(bPc)?'hsl(185,90%,88%)':`hsla(${hue(m)},85%,70%,0.9)`;kCtx.fillText(NOTE_NAMES[bPc],bx+bW/2,sY+bH-5);}
     }
     wi++;
