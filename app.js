@@ -1876,7 +1876,11 @@ function dispatchCommand(v) {
   if (base==='controls') { consolePrint('CONTROLS:\n  makebutton <cmd>   — add a quick-access button\n  removebutton <cmd> — remove a button', ms); return; }
   if (base==='rules') { consolePrint('HOW TO PLAY:\n  1. Press PLAY and pick a key/scale\n  2. Watch the chord name — that\'s your challenge\n  3. Play those notes on keyboard or MIDI\n  4. Score points → level up → buy synth modules\n  5. Patch cables between modules to shape your sound', ms); return; }
   if (base==='reset') { consolePrint('RESET OPTIONS\n\nWARNING: these unrecoverably remove progress.\n\n  resetall    — wipe all progress and reload\n  resetlevel  — reset level to 1\n  resetscore  — reset score to 0\n  resetmods   — clear all modules (keeps audio out)', ms); return; }
-  if (base==='resetall') { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(BTNS_KEY); location.reload(); return; }
+  if (base==='resetall') {
+    localStorage.removeItem(SAVE_KEY); localStorage.removeItem(BTNS_KEY);
+    if (multiplayer.isConnected) { multiplayer.conn?.close(); multiplayer.peer?.destroy(); }
+    location.reload(); return;
+  }
   if (base==='resetlevel') { levelIdx=0; levelValEl.textContent=GAME_CONFIG.levels[0].label; consolePrint('Level reset.', ms); saveState(); return; }
   if (base==='resetscore') { score=0; scoreValEl.textContent='0'; streakCount=0; streakLevels=0; streakValEl.style.opacity='0'; consolePrint('Score reset.', ms); saveState(); return; }
   if (base==='resetmods') { for(const id of [...registry.modules.keys()])if(id!=='audio-out-0')registry.removeModule(id); const oid=registry.addModule('osc-sine'); registry.addPatch(oid,'audio','audio-out-0','in'); audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return; }
@@ -1890,6 +1894,18 @@ function dispatchCommand(v) {
       consolePrint(GAME_CONFIG.levels[levelIdx].label, ms); spawnChordBurst(200); saveState();
     }
     return;
+  }
+  if (base==='level' || v.match(/^level\s+\d+/)) {
+    const n = parseInt(v.split(/\s+/)[1]);
+    if (isNaN(n) || n < 1 || n > GAME_CONFIG.levels.length) {
+      consolePrint(`usage: level 1–${GAME_CONFIG.levels.length}`, ms); return;
+    }
+    levelIdx = n - 1;
+    levelValEl.textContent = GAME_CONFIG.levels[levelIdx].label;
+    streakCount = 0; streakLevels = 0; streakValEl.style.opacity = '0';
+    if (levelIdx >= 1) shopBtnEl.classList.remove('locked');
+    if (levelIdx >= 9) _unlockEarMode();
+    consolePrint(GAME_CONFIG.levels[levelIdx].label, ms); saveState(); return;
   }
   if (base==='iddqd') {
     levelIdx=GAME_CONFIG.levels.length-1; levelValEl.textContent=GAME_CONFIG.levels[levelIdx].label;
