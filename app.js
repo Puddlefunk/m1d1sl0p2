@@ -2365,7 +2365,7 @@ document.getElementById('opt-midiclock')?.addEventListener('click', () => {
   saveState();
 });
 
-function _openModePanel()  { modePanelEl.classList.add('open');    modePanelBtn.classList.add('panel-open'); }
+function _openModePanel()  { setControlsPos(controlsBarPos); modePanelEl.classList.add('open'); modePanelBtn.classList.add('panel-open'); }
 function _closeModePanel() { modePanelEl.classList.remove('open'); modePanelBtn.classList.remove('panel-open'); }
 
 modePanelBtn?.addEventListener('click', () => modePanelEl.classList.contains('open') ? _closeModePanel() : _openModePanel());
@@ -2629,23 +2629,24 @@ function setControlsPos(pos) {
   controlsBarPos = pos ?? 'below';
   const gc = document.getElementById('game-controls');
   const mp = document.getElementById('mode-panel');
+  const panelOpen = mp?.classList.contains('open');
   const kH = (Math.min(canvas.width - 60, 720) / 14) * 4;
   const barH = gc ? gc.getBoundingClientRect().height || 36 : 36;
   if (controlsBarPos === 'below') {
     kbRiseOffset = Math.round(barH + 10);
     if (gc) { gc.style.top = 'auto'; gc.style.bottom = '12px'; gc.style.left = '50%'; gc.style.transform = 'translateX(-50%)'; }
-    if (mp) { mp.style.top = 'auto'; mp.style.bottom = '52px'; mp.style.left = '50%'; mp.style.transform = 'translateX(-50%)'; }
+    if (mp && !panelOpen) { mp.style.top = 'auto'; mp.style.bottom = '52px'; mp.style.left = '50%'; mp.style.transform = 'translateX(-50%)'; }
   } else if (controlsBarPos === 'above') {
     kbRiseOffset = 0;
     const fromBot = Math.round(kH + 18);
     const maxW = Math.min(canvas.width - 60, 720);
-    const kbRight = (canvas.width + maxW) / 2; // right edge of keyboard in px from left
+    const kbRight = (canvas.width + maxW) / 2;
     if (gc) { gc.style.top = 'auto'; gc.style.bottom = `${fromBot}px`; gc.style.left = `${kbRight - (gc.getBoundingClientRect().width || 300)}px`; gc.style.transform = 'none'; }
-    if (mp) { mp.style.top = 'auto'; mp.style.bottom = `${fromBot + barH + 8}px`; mp.style.left = `${kbRight - 280}px`; mp.style.transform = 'none'; }
+    if (mp && !panelOpen) { mp.style.top = 'auto'; mp.style.bottom = `${fromBot + barH + 8}px`; mp.style.left = `${kbRight - 280}px`; mp.style.transform = 'none'; }
   } else { // 'top'
     kbRiseOffset = 0;
     if (gc) { gc.style.bottom = 'auto'; gc.style.top = '12px'; gc.style.left = '50%'; gc.style.transform = 'translateX(-50%)'; }
-    if (mp) { mp.style.bottom = 'auto'; mp.style.top = '52px'; mp.style.left = '50%'; mp.style.transform = 'translateX(-50%)'; }
+    if (mp && !panelOpen) { mp.style.bottom = 'auto'; mp.style.top = '52px'; mp.style.left = '50%'; mp.style.transform = 'translateX(-50%)'; }
   }
   document.querySelectorAll('.ctrl-pos-opt').forEach(b => b.classList.toggle('active', b.dataset.pos === controlsBarPos));
 }
