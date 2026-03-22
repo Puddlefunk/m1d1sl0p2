@@ -372,6 +372,13 @@ function drawPolygon() {
   const pos=[...activeNotes.keys()].map(notePos), h=detectedLabel?detectedHue:hue([...activeNotes.keys()][0]);
   ctx.strokeStyle=`hsla(${h},85%,65%,${detectedLabel?0.5:0.18})`; ctx.lineWidth=1.2;
   for (let i=0;i<pos.length;i++) for (let j=i+1;j<pos.length;j++) { ctx.beginPath(); ctx.moveTo(pos[i].x,pos[i].y); ctx.lineTo(pos[j].x,pos[j].y); ctx.stroke(); }
+  // Partner polygon — cool hue shift, 60% weight and opacity
+  if (remoteNotes.size >= 2) {
+    const rPos = [...remoteNotes.keys()].map(notePos);
+    const rH   = (hue([...remoteNotes.keys()][0]) + 160) % 360;
+    ctx.strokeStyle = `hsla(${rH},85%,65%,${(detectedLabel?0.5:0.18)*0.6})`; ctx.lineWidth = 0.72;
+    for (let i=0;i<rPos.length;i++) for (let j=i+1;j<rPos.length;j++) { ctx.beginPath(); ctx.moveTo(rPos[i].x,rPos[i].y); ctx.lineTo(rPos[j].x,rPos[j].y); ctx.stroke(); }
+  }
 }
 
 function drawHintNotes() {
@@ -684,6 +691,8 @@ class GameEngine {
       // Capture extension/pentatonic targets for the bonus window (solo/co-op only)
       _bonusExtPCs  = new Set(chordExtensionPCs(currentChallenge.notes));
       _bonusPentPCs = new Set(pentatonicPCs(currentChallenge.notes[0]));
+      // Award bonus for any extension/pentatonic notes already held at the moment of success
+      for (const midi of [...activeNotes.keys(), ...remoteNotes.keys()]) this.checkBonusNote(midi);
       this._addScore();
       spawnChordBurst(currentChallenge.h, _rootPos.x, _rootPos.y, chordBurstStrength, true);
       if (_newChord) spawnSynthHit(currentChallenge.h);
@@ -855,8 +864,9 @@ class GameEngine {
     levelupEl.style.opacity = '1';
     levelupEl.style.transform = 'translate(-50%,-50%) scale(1)';
     spawnChordBurst(200);
-    triggerPhosphorFlash();
-    if (big) { setTimeout(triggerPhosphorFlash, 180); setTimeout(triggerPhosphorFlash, 360); }
+    const _ph = currentChallenge?.h ?? 270;
+    triggerPhosphorFlash(_ph);
+    if (big) { setTimeout(() => triggerPhosphorFlash(_ph), 180); setTimeout(() => triggerPhosphorFlash(_ph), 360); }
     playLevelUpSound();
   }
 
@@ -1010,6 +1020,7 @@ function folNodePos(fifthsIdx, ring) {
 let folCrossRipples   = [];   // { x, y, startTime, h } — intersection pulses
 const folActiveCrossings = new Set(); // 'midiA-midiB' pairs currently intersecting
 let folPhosphorAlpha  = 0;    // level-up bounded form flash
+let folPhosphorHue    = 270;  // hue of the current phosphor bloom (chord-keyed)
 let folNodeLabelStart = -Infinity; // timestamp for node name flash command
 let folStreakAlpha     = 0;    // streak infinite-tile flash
 const folNoteState    = new Map(); // midi → { strikeTimes:[], lastBeat, hops:[] }
@@ -1117,7 +1128,7 @@ function computeHops(fi, chaos) {
   return hops;
 }
 
-function onNoteOnFlower(midi) {
+function onNoteOnFlower(midi, isRemote = false) {
   const now = performance.now();
   const h = hue(midi), fi = fifthsPos(midi);
   const baseR = folBaseR(), boundR = folBoundR(), beatMs = folBeatMs();
@@ -1125,6 +1136,7 @@ function onNoteOnFlower(midi) {
   const state = folNoteState.get(midi);
   state.hops = computeHops(fi, folChaos());
   state.strikeTimes.push(now);
+  state.remote = isRemote;
 }
 
 function onNoteOffFlower(midi) {
@@ -1133,8 +1145,9 @@ function onNoteOffFlower(midi) {
     if (key.startsWith(midi+'-') || key.endsWith('-'+midi)) folActiveCrossings.delete(key);
 }
 
-function triggerPhosphorFlash() {
+function triggerPhosphorFlash(h = folPhosphorHue) {
   folPhosphorAlpha = 1.0;
+  folPhosphorHue   = h;
 }
 
 function triggerStreakFlash(level = 1) {
@@ -1220,29 +1233,29 @@ function drawFlowerBackground() {
     }
     ctx.restore(); // removes clip
 
-    // Bounding circle ring blazes
+    // Bounding circle ring blazes in the chord's hue
     ctx.beginPath(); ctx.arc(cx, cy, boundR, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(210,170,255,${folPhosphorAlpha * 0.9})`;
+    ctx.strokeStyle = `hsla(${folPhosphorHue},80%,72%,${folPhosphorAlpha * 0.9})`;
     ctx.lineWidth   = 2.5;
-    ctx.shadowColor = `rgba(180,110,255,${folPhosphorAlpha * 0.7})`;
+    ctx.shadowColor = `hsla(${folPhosphorHue},85%,60%,${folPhosphorAlpha * 0.7})`;
     ctx.shadowBlur  = 22;
     ctx.stroke();
     ctx.shadowBlur  = 0;
 
-    // Radial violet bloom
-    const flashA = Math.pow(folPhosphorAlpha, 2.2) * 0.5;
+    // Radial bloom in chord hue — kept subtle to avoid fog baking into the motion-blur buffer
+    const flashA = Math.pow(folPhosphorAlpha, 2.2) * 0.35;
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, boundR);
-    g.addColorStop(0,   `rgba(230,200,255,${flashA})`);
-    g.addColorStop(0.5, `rgba(140,75,255,${folPhosphorAlpha * 0.07})`);
+    g.addColorStop(0,   `hsla(${folPhosphorHue},70%,88%,${flashA})`);
+    g.addColorStop(0.5, `hsla(${folPhosphorHue},80%,60%,${folPhosphorAlpha * 0.03})`);
     g.addColorStop(1,   'transparent');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(cx, cy, boundR, 0, Math.PI * 2); ctx.fill();
 
-    folPhosphorAlpha = Math.max(0, folPhosphorAlpha - 0.006);
+    folPhosphorAlpha = Math.max(0, folPhosphorAlpha - 0.010);
   } else {
     // Bounding circle — nearly invisible at rest
     ctx.beginPath(); ctx.arc(cx, cy, boundR, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(110,65,175,0.05)';
+    ctx.strokeStyle = 'rgba(110,65,175,0.03)';
     ctx.lineWidth   = 1;
     ctx.stroke();
   }
@@ -1279,7 +1292,7 @@ function drawFlowerNodes() {
       } else {
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, dotR, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(118,75,200,${0.16 / ring})`;
+        ctx.fillStyle = `rgba(118,75,200,${0.10 / ring})`;
         ctx.fill();
       }
     }
@@ -1341,13 +1354,26 @@ function folLightningSubdivide(x1, y1, x2, y2, disp, depth, pts, branches) {
   folLightningSubdivide(nx, ny, x2, y2, disp*0.62, depth-1, pts, branches);
 }
 
-function folStrokePath(pts, h, coreAlpha, width, flicker) {
+// ampDist: distance from path start at which the signal is "amplified" (ring1R).
+// Segments before ampDist are thin and anemic; at/beyond ampDist they fire at full strength.
+function folStrokePath(pts, h, coreAlpha, width, flicker, ampDist = 0) {
   if (pts.length < 2) return;
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const buildPath = () => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); };
-  buildPath(); ctx.strokeStyle=`hsla(${h},80%,65%,${coreAlpha*0.07*flicker})`; ctx.lineWidth=width*15; ctx.stroke();
-  buildPath(); ctx.strokeStyle=`hsla(${h},88%,72%,${coreAlpha*0.25*flicker})`; ctx.lineWidth=width*3.8; ctx.stroke();
-  buildPath(); ctx.strokeStyle=`hsla(${h},96%,93%,${coreAlpha*0.70*flicker})`; ctx.lineWidth=width*0.88; ctx.stroke();
+  const dists = [0];
+  for (let i = 1; i < pts.length; i++)
+    dists.push(dists[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
+  for (let i = 1; i < pts.length; i++) {
+    const segMid = (dists[i-1] + dists[i]) * 0.5;
+    const pre = ampDist > 0 && segMid < ampDist; // ghost signal before amplification
+    const w = pre ? width * 0.04 : width;
+    const a = pre ? coreAlpha * 0.06 : coreAlpha;
+    ctx.beginPath(); ctx.moveTo(pts[i-1][0], pts[i-1][1]); ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle=`hsla(${h},80%,65%,${a*0.07*flicker})`; ctx.lineWidth=w*15; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pts[i-1][0], pts[i-1][1]); ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle=`hsla(${h},88%,72%,${a*0.25*flicker})`; ctx.lineWidth=w*3.8; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pts[i-1][0], pts[i-1][1]); ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle=`hsla(${h},96%,93%,${a*0.70*flicker})`; ctx.lineWidth=w*0.88; ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -1386,7 +1412,33 @@ function drawFlowerLightning() {
       folLightningSubdivide(wps[w-1][0],wps[w-1][1], wps[w][0],wps[w][1], chaos*0.38, depth, seg, null);
       allPts.push(...seg.slice(1));
     }
-    folStrokePath(allPts, h, 1.0, 1, flicker);
+    folStrokePath(allPts, h, 1.0, 1, flicker, ring1R);
+  }
+
+  // Partner (remote) bolts — cool hue shift (+160°), 60% opacity and weight
+  for (const [midi] of remoteNotes) {
+    const state = folNoteState.get(midi);
+    if (!state?.strikeTimes.length) continue;
+    const fi    = fifthsPos(midi);
+    const h     = (hue(midi) + 160) % 360;
+    const age   = now - state.strikeTimes.at(-1);
+    const front = Math.min(age / (beatMs * 0.5) * boundR, boundR);
+    const flicker = (0.55+0.45*Math.sin(now/52+midi*2.1))*(0.75+0.25*Math.sin(now/19+fi*1.7));
+    const angle = (fi/12)*Math.PI*2 - Math.PI/2;
+    const ex = cx + Math.cos(angle)*front, ey = cy + Math.sin(angle)*front;
+    const wps = [[cx, cy]];
+    if (front >= ring1R * 0.8) {
+      for (const hop of (state.hops || [])) wps.push([hop.x, hop.y]);
+    }
+    wps.push([ex, ey]);
+    boltData.push({ wps, h, midi });
+    const allPts = [[cx, cy]];
+    for (let w = 1; w < wps.length; w++) {
+      const seg = [wps[w-1]];
+      folLightningSubdivide(wps[w-1][0],wps[w-1][1], wps[w][0],wps[w][1], chaos*0.38, depth, seg, null);
+      allPts.push(...seg.slice(1));
+    }
+    folStrokePath(allPts, h, 0.6, 0.6, flicker, ring1R);
   }
 
   // Detect waypoint-segment intersections — fire ripple once per note pair, only on genuine angle crossings
@@ -1495,6 +1547,16 @@ function updateFlowerPulse() {
     // New beat: pick fresh routing, re-fire strike (no ripples — those fire once on initial strike only)
     const fi = fifthsPos(midi), h = hue(midi);
     state.hops = computeHops(fi, folChaos());
+    state.strikeTimes.push(now);
+    if (state.strikeTimes.length > 8) state.strikeTimes.shift();
+  }
+  for (const [midi, note] of remoteNotes) {
+    const state = folNoteState.get(midi);
+    if (!state) continue;
+    const beat = Math.floor((now - note.startTime) / beatMs);
+    if (beat <= state.lastBeat) continue;
+    state.lastBeat = beat;
+    state.hops = computeHops(fifthsPos(midi), folChaos());
     state.strikeTimes.push(now);
     if (state.strikeTimes.length > 8) state.strikeTimes.shift();
   }
@@ -2055,7 +2117,7 @@ multiplayer
   // ── Incoming notes from partner ──
   .on('NOTE_ON', ({ midi, velocity }) => {
     remoteNotes.set(midi, { startTime: performance.now() });
-    onNoteOnFlower(midi);
+    onNoteOnFlower(midi, true);
     runDetection(); refreshNoteDisplay();
     if (multiplayer.isHost && gameMode === 'play') {
       phrasePeakNotes = Math.max(phrasePeakNotes, activeNotes.size + remoteNotes.size);
