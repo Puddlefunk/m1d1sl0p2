@@ -68,7 +68,7 @@ body.mp-connected #chat-panel { display: block; }
 
 
 #game-controls {
-  position: fixed; bottom: 232px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 20px; right: 16px;
   display: flex; gap: 8px; align-items: center; z-index: 10;
 }
 #mode-btn, #shop-btn, #mode-panel-btn {
@@ -85,7 +85,7 @@ body.mp-connected #chat-panel { display: block; }
 
 /* ── Mode panel ── */
 #mode-panel {
-  display: none; position: fixed; bottom: 278px; left: 50%; transform: translateX(-50%);
+  display: none; position: fixed; bottom: 60px; right: 16px;
   width: 280px; z-index: 200;
   border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
   background: linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.02) 30%,rgba(0,0,0,0) 60%), rgba(12,12,16,.92);
@@ -378,7 +378,7 @@ body.mp-connected #chat-panel { display: block; }
 
 /* MIDI learn */
 #custom-btns {
-  position: fixed; bottom: 144px; right: 16px;
+  position: fixed; bottom: 60px; right: 16px;
   display: flex; flex-direction: column; align-items: flex-end; gap: 4px; z-index: 10;
 }
 .custom-btn {
@@ -389,11 +389,10 @@ body.mp-connected #chat-panel { display: block; }
 }
 .custom-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
 #midi-learn-btn {
-  position: fixed; bottom: 68px; right: 16px;
   background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
   color: rgba(255,255,255,.5); font-family: monospace; font-size: 11px;
   padding: 5px 12px; cursor: pointer; letter-spacing: 2px;
-  transition: background .15s, color .15s, border-color .15s; z-index: 10;
+  transition: background .15s, color .15s, border-color .15s;
 }
 #midi-learn-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
 #midi-learn-btn.armed { border-color: rgba(255,160,0,.65); color: rgba(255,185,60,.95); background: rgba(255,140,0,.09); }
