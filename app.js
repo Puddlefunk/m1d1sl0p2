@@ -1354,27 +1354,21 @@ function folLightningSubdivide(x1, y1, x2, y2, disp, depth, pts, branches) {
   folLightningSubdivide(nx, ny, x2, y2, disp*0.62, depth-1, pts, branches);
 }
 
-// ampDist: distance from path start at which the signal is "amplified" (ring1R).
-// Segments before ampDist are thin and anemic; at/beyond ampDist they fire at full strength.
-function folStrokePath(pts, h, coreAlpha, width, flicker, ampDist = 0) {
+function folStrokePath(pts, h, coreAlpha, width, flicker) {
   if (pts.length < 2) return;
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const dists = [0];
-  for (let i = 1; i < pts.length; i++)
-    dists.push(dists[i-1] + Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
-  for (let i = 1; i < pts.length; i++) {
-    const segMid = (dists[i-1] + dists[i]) * 0.5;
-    const pre = ampDist > 0 && segMid < ampDist; // ghost signal before amplification
-    const w = pre ? width * 0.04 : width;
-    const a = pre ? coreAlpha * 0.06 : coreAlpha;
-    ctx.beginPath(); ctx.moveTo(pts[i-1][0], pts[i-1][1]); ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.strokeStyle=`hsla(${h},80%,65%,${a*0.07*flicker})`; ctx.lineWidth=w*15; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(pts[i-1][0], pts[i-1][1]); ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.strokeStyle=`hsla(${h},88%,72%,${a*0.25*flicker})`; ctx.lineWidth=w*3.8; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(pts[i-1][0], pts[i-1][1]); ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.strokeStyle=`hsla(${h},96%,93%,${a*0.70*flicker})`; ctx.lineWidth=w*0.88; ctx.stroke();
-  }
+  const buildPath = () => { ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); };
+  buildPath(); ctx.strokeStyle=`hsla(${h},80%,65%,${coreAlpha*0.07*flicker})`; ctx.lineWidth=width*15; ctx.stroke();
+  buildPath(); ctx.strokeStyle=`hsla(${h},88%,72%,${coreAlpha*0.25*flicker})`; ctx.lineWidth=width*3.8; ctx.stroke();
+  buildPath(); ctx.strokeStyle=`hsla(${h},96%,93%,${coreAlpha*0.70*flicker})`; ctx.lineWidth=width*0.88; ctx.stroke();
   ctx.restore();
+}
+
+// Build a jagged subdivided path between two waypoints, appending to pts.
+function _folSubdivSeg(x0, y0, x1, y1, chaos, depth, pts) {
+  const seg = [[x0, y0]];
+  folLightningSubdivide(x0, y0, x1, y1, chaos * 0.38, depth, seg, null);
+  pts.push(...seg.slice(1));
 }
 
 function drawFlowerLightning() {
@@ -1386,60 +1380,48 @@ function drawFlowerLightning() {
   const ring1R = folBaseR();
   const boltData = []; // collect for intersection pass
 
-  for (const [midi] of activeNotes) {
+  const drawBolt = (midi, h, fullAlpha, fullWidth) => {
     const state = folNoteState.get(midi);
-    if (!state?.strikeTimes.length) continue;
+    if (!state?.strikeTimes.length) return;
     const fi    = fifthsPos(midi);
-    const h     = hue(midi);
     const age   = now - state.strikeTimes.at(-1);
     const front = Math.min(age / (beatMs * 0.5) * boundR, boundR);
     const flicker = (0.55+0.45*Math.sin(now/52+midi*2.1))*(0.75+0.25*Math.sin(now/19+fi*1.7));
     const angle = (fi/12)*Math.PI*2 - Math.PI/2;
     const ex = cx + Math.cos(angle)*front, ey = cy + Math.sin(angle)*front;
 
-    // Waypoints: center → [intermediate nodes] → target
-    const wps = [[cx, cy]];
-    if (front >= ring1R * 0.8) {
-      for (const hop of (state.hops || [])) wps.push([hop.x, hop.y]);
-    }
-    wps.push([ex, ey]);
+    const hasHops = front >= ring1R * 0.8 && (state.hops || []).length > 0;
+    const hops    = hasHops ? state.hops : [];
+
+    // Waypoints for intersection detection
+    const wps = [[cx, cy], ...hops.map(h => [h.x, h.y]), [ex, ey]];
     boltData.push({ wps, h, midi });
 
-    // Build jagged path through waypoints
-    const allPts = [[cx, cy]];
-    for (let w = 1; w < wps.length; w++) {
-      const seg = [wps[w-1]];
-      folLightningSubdivide(wps[w-1][0],wps[w-1][1], wps[w][0],wps[w][1], chaos*0.38, depth, seg, null);
-      allPts.push(...seg.slice(1));
+    // Pre-ring: center → first hop (or endpoint if not yet at ring1)
+    //   Faint ghost — signal before amplification
+    const ring1Tgt = hasHops ? [hops[0].x, hops[0].y] : [ex, ey];
+    const prePts = [[cx, cy]];
+    _folSubdivSeg(cx, cy, ring1Tgt[0], ring1Tgt[1], chaos, depth, prePts);
+    folStrokePath(prePts, h, fullAlpha * 0.38, fullWidth * 0.40, flicker);
+
+    if (!hasHops) return; // bolt still travelling to ring1 — nothing to amplify yet
+
+    // Post-ring: first hop → remaining hops → endpoint
+    //   Full strength — amplified by the node ring
+    const postPts = [[hops[0].x, hops[0].y]];
+    const remainingWps = [...hops.slice(1).map(h => [h.x, h.y]), [ex, ey]];
+    let px = hops[0].x, py = hops[0].y;
+    for (const [nx, ny] of remainingWps) {
+      _folSubdivSeg(px, py, nx, ny, chaos, depth, postPts);
+      px = nx; py = ny;
     }
-    folStrokePath(allPts, h, 1.0, 1, flicker, ring1R);
-  }
+    folStrokePath(postPts, h, fullAlpha, fullWidth, flicker);
+  };
+
+  for (const [midi] of activeNotes) drawBolt(midi, hue(midi), 1.0, 1);
 
   // Partner (remote) bolts — cool hue shift (+160°), 60% opacity and weight
-  for (const [midi] of remoteNotes) {
-    const state = folNoteState.get(midi);
-    if (!state?.strikeTimes.length) continue;
-    const fi    = fifthsPos(midi);
-    const h     = (hue(midi) + 160) % 360;
-    const age   = now - state.strikeTimes.at(-1);
-    const front = Math.min(age / (beatMs * 0.5) * boundR, boundR);
-    const flicker = (0.55+0.45*Math.sin(now/52+midi*2.1))*(0.75+0.25*Math.sin(now/19+fi*1.7));
-    const angle = (fi/12)*Math.PI*2 - Math.PI/2;
-    const ex = cx + Math.cos(angle)*front, ey = cy + Math.sin(angle)*front;
-    const wps = [[cx, cy]];
-    if (front >= ring1R * 0.8) {
-      for (const hop of (state.hops || [])) wps.push([hop.x, hop.y]);
-    }
-    wps.push([ex, ey]);
-    boltData.push({ wps, h, midi });
-    const allPts = [[cx, cy]];
-    for (let w = 1; w < wps.length; w++) {
-      const seg = [wps[w-1]];
-      folLightningSubdivide(wps[w-1][0],wps[w-1][1], wps[w][0],wps[w][1], chaos*0.38, depth, seg, null);
-      allPts.push(...seg.slice(1));
-    }
-    folStrokePath(allPts, h, 0.6, 0.6, flicker, ring1R);
-  }
+  for (const [midi] of remoteNotes) drawBolt(midi, (hue(midi) + 160) % 360, 0.6, 0.6);
 
   // Detect waypoint-segment intersections — fire ripple once per note pair, only on genuine angle crossings
   const minDistFromCenter = ring1R * 0.25;
