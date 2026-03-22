@@ -46,11 +46,8 @@ canvas { display: block; }
   backdrop-filter: blur(18px) brightness(.72);
   -webkit-backdrop-filter: blur(18px) brightness(.72);
   box-shadow: 0 4px 24px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
-  opacity: 0; pointer-events: none; transform: translateY(6px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-#chat-panel.chat-open {
-  opacity: 1; pointer-events: auto; transform: translateY(0);
+  opacity: 1; pointer-events: auto;
+  transition: opacity 0.18s ease;
 }
 
 .chat-header {
