@@ -56,8 +56,10 @@ body.mp-connected #chat-panel { display: block; }
 
 .chat-msg { color: rgba(255,255,255,.45); word-break: break-word; line-height: 1.4; }
 .chat-msg .chat-who { letter-spacing: 1px; margin-right: 5px; }
-.chat-msg.chat-you  .chat-who { color: rgba(255,255,255,.6); }
-.chat-msg.chat-them .chat-who { color: rgba(60,200,255,.7); }
+.chat-msg.chat-you   .chat-who { color: rgba(255,255,255,.6); }
+.chat-msg.chat-alice .chat-who { color: rgba(255,255,255,.6); }
+.chat-msg.chat-bob   .chat-who { color: rgba(60,200,255,.7); }
+.chat-msg.chat-them  .chat-who { color: rgba(60,200,255,.7); }
 
 
 #game-controls {

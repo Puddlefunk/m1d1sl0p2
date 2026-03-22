@@ -1518,12 +1518,14 @@ function onNoteOff(note) {
 }
 
 modeBtnEl.addEventListener('click', () => {
+  if (multiplayer.isClient) return; // host controls the game
   audioGraph.ensure();
   if (gameMode==='play') gameEngine.stopGame();
   else { earTraining = false; gameEngine.startGame(); }
 });
 
 earBtnEl.addEventListener('click', () => {
+  if (multiplayer.isClient) return;
   audioGraph.ensure();
   if (gameMode==='play' && earTraining) gameEngine.stopGame();
   else { earTraining = true; gameEngine.startGame(); }
@@ -2046,14 +2048,14 @@ function chatAppend(text, side) {
   msg.className = `chat-msg chat-${side}`;
   const who = document.createElement('span');
   who.className = 'chat-who';
-  who.textContent = side === 'you' ? 'you' : 'them';
+  who.textContent = side; // 'you', 'alice', or 'bob'
   msg.append(who, text);
   chatMessagesEl.appendChild(msg);
   if (chatMessagesEl.children.length > 60) chatMessagesEl.firstChild.remove();
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
 }
 
-multiplayer.on('CHAT', ({ text }) => chatAppend(text, 'them'));
+multiplayer.on('CHAT', ({ text }) => chatAppend(text, multiplayer.isHost ? 'bob' : 'alice'));
 
 // Share button — copies join URL to clipboard
 document.getElementById('mp-share-btn')?.addEventListener('click', () => {
