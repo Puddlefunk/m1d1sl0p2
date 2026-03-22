@@ -58,6 +58,9 @@ let streakLevels = 0;  // earned streak levels (0–4); reaching 5 triggers leve
 let earTraining  = false;          // ear training mode active
 let selectedMode = 'play';         // 'play' | 'ear' | 'competitive' | 'tennis'
 let remoteScore  = 0;              // opponent score in competitive/tennis modes
+let roundsPlayed = 0;              // competitive: shared round counter for level advance
+let lockedOut      = false;        // competitive: host locked out this round
+let remoteLockedOut = false;       // competitive: client locked out this round
 let idleTimeouts = 0;             // consecutive no-attempt timeouts; auto-pauses at 10
 
 let _wrongPenaltyGiven = false;   // once per challenge
@@ -500,6 +503,11 @@ class GameEngine {
     gameMode     = 'play';
     challengeDeck = [];
     streakCount = 0; streakLevels = 0; idleTimeouts = 0;
+    lockedOut = false; remoteLockedOut = false;
+    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+      remoteScore = 0; roundsPlayed = 0;
+      _updateRemoteScore();
+    }
 
     modeBtnEl.textContent = 'PAUSE'; modeBtnEl.classList.add('active');
     hudEl.style.display = 'block';
@@ -587,8 +595,39 @@ class GameEngine {
 
   checkSuccess() {
     if (gameMode !== 'play' || gamePhase !== 'play' || !currentChallenge) return;
-    const played   = new Set([...activeNotes.keys(), ...remoteNotes.keys()].map(m => normPc(midiToPitchClass(m))));
     const required = currentChallenge.notes.map(normPc);
+
+    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+      const localPCs  = new Set([...activeNotes.keys()].map(m => normPc(midiToPitchClass(m))));
+      const remotePCs = new Set([...remoteNotes.keys()].map(m => normPc(midiToPitchClass(m))));
+      if (!lockedOut       && required.every(pc => localPCs.has(pc)))  { this.triggerSuccess('host');   return; }
+      if (!remoteLockedOut && required.every(pc => remotePCs.has(pc))) { this.triggerSuccess('client'); return; }
+      // Wrong chord → lockout for the offending side
+      if (!_wrongPenaltyGiven) {
+        const wrongLocal  = !lockedOut       && localPCs.size  >= required.length && !required.every(pc => localPCs.has(pc));
+        const wrongRemote = !remoteLockedOut && remotePCs.size >= required.length && !required.every(pc => remotePCs.has(pc));
+        if (wrongLocal || wrongRemote) {
+          _wrongPenaltyGiven = true;
+          const cfg = this.config.competitive;
+          if (wrongLocal) {
+            lockedOut = true;
+            hintLabelEl.textContent = 'wrong — locked out';
+            feedbackEl.textContent = '✗'; feedbackEl.style.color = '#ff4040';
+            feedbackEl.style.textShadow = '0 0 20px #ff2020'; feedbackAlpha = 0.8;
+            setTimeout(() => { lockedOut = false; if (gamePhase === 'play') hintLabelEl.textContent = ''; }, cfg.lockoutMs);
+          }
+          if (wrongRemote) {
+            remoteLockedOut = true;
+            multiplayer.send('LOCKOUT', { ms: cfg.lockoutMs });
+            setTimeout(() => { remoteLockedOut = false; }, cfg.lockoutMs);
+          }
+        }
+      }
+      return;
+    }
+
+    // Co-op / solo
+    const played = new Set([...activeNotes.keys(), ...remoteNotes.keys()].map(m => normPc(midiToPitchClass(m))));
     if (required.every(pc => played.has(pc))) { this.triggerSuccess(); return; }
     if (!_wrongPenaltyGiven && played.size >= required.length) {
       _wrongPenaltyGiven = true;
@@ -602,7 +641,7 @@ class GameEngine {
     }
   }
 
-  triggerSuccess() {
+  triggerSuccess(winner = null) {
     if (gamePhase === 'success') return;
     gamePhase  = 'success';
     phaseStart = performance.now();
@@ -611,32 +650,72 @@ class GameEngine {
     timerSecsEl.style.display = 'none';
 
     idleTimeouts = 0;
-    // Capture extension/pentatonic targets for the bonus window
-    _bonusExtPCs  = new Set(chordExtensionPCs(currentChallenge.notes));
-    _bonusPentPCs = new Set(pentatonicPCs(currentChallenge.notes[0]));
-
-    this._addScore();
     const _rootPos = notePos(pcToMidi(normPc(currentChallenge.notes[0]??'C')));
     const _chordId = currentChallenge.display.match(/^[A-G][#b]?/)?.[0] ?? currentChallenge.display;
     const _newChord = _chordId !== lastBurstChord;
     if (_newChord) { lastBurstChord = _chordId; chordBurstStrength = 1.0; }
     else           { chordBurstStrength = Math.max(0.08, chordBurstStrength * 0.55); }
-    spawnChordBurst(currentChallenge.h, _rootPos.x, _rootPos.y, chordBurstStrength, true);
-    if (_newChord) spawnSynthHit(currentChallenge.h);
     playSuccessSound(currentChallenge.notes);
 
-    feedbackEl.textContent   = earTraining ? `✓  ${currentChallenge.display}` : '✓';
-    feedbackEl.style.color   = `hsl(${currentChallenge.h},85%,75%)`;
-    feedbackEl.style.textShadow = `0 0 40px hsl(${currentChallenge.h},85%,60%)`;
-    feedbackAlpha = 1;
-    multiplayer.send('SUCCESS', { display: currentChallenge.display, h: currentChallenge.h });
-    setTimeout(() => { if (gameMode === 'play') this.startNextChallenge(); }, 2000);
+    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+      this._addScoreCompetitive(winner);
+      const iWon = winner === 'host';
+      if (iWon) {
+        spawnChordBurst(currentChallenge.h, _rootPos.x, _rootPos.y, chordBurstStrength, true);
+        if (_newChord) spawnSynthHit(currentChallenge.h);
+        feedbackEl.textContent      = `✓ you got it`;
+        feedbackEl.style.color      = `hsl(${currentChallenge.h},85%,75%)`;
+        feedbackEl.style.textShadow = `0 0 40px hsl(${currentChallenge.h},85%,60%)`;
+      } else {
+        feedbackEl.textContent      = `✗ they got it`;
+        feedbackEl.style.color      = '#ff6060';
+        feedbackEl.style.textShadow = '0 0 20px #ff2020';
+      }
+      feedbackAlpha = 1;
+      multiplayer.send('SUCCESS', { display: currentChallenge.display, h: currentChallenge.h, winner });
+      setTimeout(() => { if (gameMode === 'play') this.startNextChallenge(); }, 1500);
+    } else {
+      // Capture extension/pentatonic targets for the bonus window (solo/co-op only)
+      _bonusExtPCs  = new Set(chordExtensionPCs(currentChallenge.notes));
+      _bonusPentPCs = new Set(pentatonicPCs(currentChallenge.notes[0]));
+      this._addScore();
+      spawnChordBurst(currentChallenge.h, _rootPos.x, _rootPos.y, chordBurstStrength, true);
+      if (_newChord) spawnSynthHit(currentChallenge.h);
+      feedbackEl.textContent   = earTraining ? `✓  ${currentChallenge.display}` : '✓';
+      feedbackEl.style.color   = `hsl(${currentChallenge.h},85%,75%)`;
+      feedbackEl.style.textShadow = `0 0 40px hsl(${currentChallenge.h},85%,60%)`;
+      feedbackAlpha = 1;
+      multiplayer.send('SUCCESS', { display: currentChallenge.display, h: currentChallenge.h });
+      setTimeout(() => { if (gameMode === 'play') this.startNextChallenge(); }, 2000);
+    }
   }
 
   triggerFail(reason = 'miss') {
     if (gamePhase !== 'play') return;
     gamePhase  = 'fail';
     phaseStart = performance.now();
+    timerBarEl.style.display = 'none';
+    timerSecsEl.style.display = 'none';
+
+    if (selectedMode === 'competitive' && multiplayer.isConnected) {
+      // Competitive timeout = draw, no score change, clear lockouts
+      lockedOut = false; remoteLockedOut = false;
+      if (reason === 'timeout') {
+        roundsPlayed++;
+        if (roundsPlayed % GAME_CONFIG.competitive.roundsPerLevel === 0) this._doLevelUp(false);
+        multiplayer.send('SCORE_UPDATE', { hostScore: score, clientScore: remoteScore, levelIdx, roundsPlayed });
+      }
+      playFailSound();
+      feedbackEl.textContent      = 'draw';
+      feedbackEl.style.color      = 'rgba(255,255,255,0.4)';
+      feedbackEl.style.textShadow = 'none';
+      feedbackAlpha = 0.8;
+      challengeNameEl.style.opacity = '0.35';
+      multiplayer.send('FAIL', { display: currentChallenge?.display ?? '', draw: true });
+      setTimeout(() => { if (gameMode === 'play' && gamePhase === 'fail') this.startNextChallenge(); }, 1200);
+      return;
+    }
+
     streakCount = 0;
     if (streakLevels > 0) streakLevels--;
     this._updateStreakDisplay();
@@ -654,8 +733,6 @@ class GameEngine {
         idleTimeouts = 0;
       }
     }
-    timerBarEl.style.display = 'none';
-    timerSecsEl.style.display = 'none';
 
     playFailSound();
     feedbackEl.textContent   = earTraining ? `✗  ${currentChallenge.display}` : '✗';
@@ -691,6 +768,23 @@ class GameEngine {
     this._updateStreakDisplay();
     saveState();
     multiplayer.send('SCORE_UPDATE', { score, levelIdx, streakCount, streakLevels });
+  }
+
+  _addScoreCompetitive(winner) {
+    const cfg = this.config.scoring;
+    let pts = cfg.basePoints;
+    if (challengeTimerSecs > 0) {
+      const frac = Math.max(0, 1 - (performance.now() - playPhaseStart) / (challengeTimerSecs * 1000));
+      pts += Math.round(cfg.timeBonusMax * frac);
+    }
+    lockedOut = false; remoteLockedOut = false;
+    roundsPlayed++;
+    if (winner === 'host')   { score += pts; scoreValEl.textContent = score.toLocaleString(); }
+    if (winner === 'client') { remoteScore += pts; }
+    _updateRemoteScore();
+    if (roundsPlayed % GAME_CONFIG.competitive.roundsPerLevel === 0) this._doLevelUp(false);
+    saveState();
+    multiplayer.send('SCORE_UPDATE', { hostScore: score, clientScore: remoteScore, levelIdx, roundsPlayed });
   }
 
   _doLevelUp(streakTriggered = false) {
@@ -1440,7 +1534,8 @@ function playSuccessSound(notes) {
 function playFailSound() {
   audioGraph.ensure(); const ac=audioGraph.ctx; if(!ac) return;
   const now=ac.currentTime;
-  audioGraph.playTone(43,0.32,now,0.22); audioGraph.playTone(42,0.22,now+0.12,0.28);
+  // boop boop — two descending short tones
+  audioGraph.playTone(58,0.38,now,0.14); audioGraph.playTone(54,0.34,now+0.19,0.18);
 }
 function playShimmer(notes) {
   audioGraph.ensure(); const ac=audioGraph.ctx; if(!ac) return;
@@ -1507,8 +1602,10 @@ function onNoteOff(note) {
   multiplayer.send('NOTE_OFF', { midi: note });
   runDetection(); refreshNoteDisplay();
   if (!multiplayer.isClient && gameMode==='play'&&gamePhase==='play'&&activeNotes.size===0&&remoteNotes.size===0) {
-    if (phrasePeakNotes>=(currentChallenge?.notes.length??3)&&!phraseMatched) gameEngine.triggerFail();
-    phrasePeakNotes=0;
+    if (selectedMode !== 'competitive') {
+      if (phrasePeakNotes>=(currentChallenge?.notes.length??3)&&!phraseMatched) gameEngine.triggerFail();
+      phrasePeakNotes=0;
+    }
   }
 }
 
@@ -1869,31 +1966,30 @@ multiplayer
     if (modeDot)  modeDot.className  = 'mp-dot mp-' + state;
     if (modeStat) modeStat.textContent = { solo:'no partner', connecting:'connecting...', host:'partner connected', client:'connected to alice' }[state] ?? '';
     if (overlay)  overlay.style.display = state === 'connecting' ? 'flex' : 'none';
-    if (state === 'client') {
-      shopBtnEl.classList.add('locked');
-      document.body.classList.add('mp-client');
-    }
+    // mp-client lockout is applied in HELLO handler once we know the mode
   })
   .on('connected', () => {
     document.body.classList.add('mp-connected');
-    consolePrint('co-op partner connected', 4000);
+    consolePrint(selectedMode === 'competitive' ? 'opponent connected — fight!' : 'co-op partner connected', 4000);
     if (multiplayer.isHost && !multiplayer._registryWired) {
       multiplayer._registryWired = true;
-      // Send full state snapshot to joining client
-      multiplayer.send('HELLO', {
-        registry: multiplayer.snapshotRegistry(registry),
+      const helloPayload = {
         game: {
-          score, levelIdx, streakCount, streakLevels, gameMode, earTraining,
+          score, levelIdx, streakCount, streakLevels, gameMode, earTraining, selectedMode, roundsPlayed,
           challenge: currentChallenge
             ? { display: currentChallenge.display, notes: currentChallenge.notes }
             : null,
         },
-      });
-      // Wire registry delta events → client
-      registry.addEventListener('module-added',   e => multiplayer.send('MODULE_ADD', e.detail));
-      registry.addEventListener('module-removed', e => multiplayer.send('MODULE_REMOVE', e.detail));
-      registry.addEventListener('param-changed',  e => multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value));
-      registry.addEventListener('patch-changed',  e => multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }));
+      };
+      if (selectedMode !== 'competitive') {
+        // Co-op only: mirror registry
+        helloPayload.registry = multiplayer.snapshotRegistry(registry);
+        registry.addEventListener('module-added',   e => multiplayer.send('MODULE_ADD', e.detail));
+        registry.addEventListener('module-removed', e => multiplayer.send('MODULE_REMOVE', e.detail));
+        registry.addEventListener('param-changed',  e => multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value));
+        registry.addEventListener('patch-changed',  e => multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }));
+      }
+      multiplayer.send('HELLO', helloPayload);
     }
   })
   .on('disconnected', () => {
@@ -1925,29 +2021,56 @@ multiplayer
   })
   // ── Client receives full state on join ──
   .on('HELLO', ({ registry: snap, game }) => {
-    multiplayer.replaySnapshot(registry, snap);
-    audioGraph.ensure();
-    score       = game.score;
+    selectedMode = game.selectedMode ?? 'play';
+    _syncModePanel();
     levelIdx    = Math.min(game.levelIdx, GAME_CONFIG.levels.length - 1);
-    streakCount = game.streakCount;  streakLevels = game.streakLevels;
-    scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
-    hudEl.style.display    = 'block';
-    shopBtnEl.classList.add('locked'); // client cannot shop
+    hudEl.style.display = 'block';
     if (levelIdx >= 9) _unlockEarMode();
-    if (game.gameMode === 'play' && game.challenge) {
-      currentChallenge = { ...game.challenge, h: rootHue(game.challenge.display) };
-      gameMode    = 'play';
-      earTraining = game.earTraining;
-      challengeEl.style.display    = 'block';
-      challengeNameEl.textContent  = game.earTraining ? '?' : game.challenge.display;
-      challengeNameEl.style.opacity = '1';
-      challengeNameEl.style.color  = `hsl(${currentChallenge.h},85%,72%)`;
-      challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
-      hintLabelEl.textContent = '';
-      hintNotes = game.earTraining ? [] : game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+
+    if (selectedMode === 'competitive') {
+      // Independent synths — no registry mirror, full client control
+      document.body.classList.remove('mp-client');
+      score = 0; remoteScore = game.score;
+      roundsPlayed = game.roundsPlayed ?? 0;
+      scoreValEl.textContent = '0';
+      _updateRemoteScore();
+      if (levelIdx >= 1) shopBtnEl.classList.remove('locked');
+      if (game.gameMode === 'play' && game.challenge) {
+        currentChallenge = { ...game.challenge, h: rootHue(game.challenge.display) };
+        gameMode = 'play'; earTraining = false;
+        challengeEl.style.display    = 'block';
+        challengeNameEl.textContent  = game.challenge.display;
+        challengeNameEl.style.opacity = '1';
+        challengeNameEl.style.color  = `hsl(${currentChallenge.h},85%,72%)`;
+        challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
+        hintLabelEl.textContent = '';
+        hintNotes = game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+      }
+      consolePrint('competitive — your synth is your own. fight!', 5000);
+    } else {
+      // Co-op: mirror host registry, client is read-only
+      multiplayer.replaySnapshot(registry, snap);
+      audioGraph.ensure();
+      score = game.score;
+      streakCount = game.streakCount; streakLevels = game.streakLevels;
+      scoreValEl.textContent = score.toLocaleString();
+      shopBtnEl.classList.add('locked');
+      document.body.classList.add('mp-client');
+      if (game.gameMode === 'play' && game.challenge) {
+        currentChallenge = { ...game.challenge, h: rootHue(game.challenge.display) };
+        gameMode    = 'play';
+        earTraining = game.earTraining;
+        challengeEl.style.display    = 'block';
+        challengeNameEl.textContent  = game.earTraining ? '?' : game.challenge.display;
+        challengeNameEl.style.opacity = '1';
+        challengeNameEl.style.color  = `hsl(${currentChallenge.h},85%,72%)`;
+        challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
+        hintLabelEl.textContent = '';
+        hintNotes = game.earTraining ? [] : game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+      }
+      consolePrint('connected — mirroring host synth', 5000);
     }
-    consolePrint('connected — mirroring host synth', 5000);
   })
   // ── Client mirrors game events ──
   .on('CHALLENGE', ({ display, notes, earTraining: et }) => {
@@ -1973,34 +2096,69 @@ multiplayer
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
   })
-  .on('SUCCESS', ({ display, h }) => {
+  .on('SUCCESS', ({ display, h, winner }) => {
     if (!multiplayer.isClient) return;
     gamePhase = 'success';
-    feedbackEl.textContent      = earTraining ? `✓  ${display}` : '✓';
-    feedbackEl.style.color      = `hsl(${h},85%,75%)`;
-    feedbackEl.style.textShadow = `0 0 40px hsl(${h},85%,60%)`;
-    feedbackAlpha = 1;
     const rootPos = notePos(pcToMidi(normPc(currentChallenge?.notes[0] ?? 'C')));
-    spawnChordBurst(h, rootPos.x, rootPos.y, 1, true);
-    spawnSynthHit(h);
+    if (selectedMode === 'competitive') {
+      const iWon = winner === 'client'; // client = Bob, so winner==='client' means Bob won
+      feedbackEl.textContent      = iWon ? '✓ you got it' : '✗ they got it';
+      feedbackEl.style.color      = iWon ? `hsl(${h},85%,75%)` : '#ff6060';
+      feedbackEl.style.textShadow = iWon ? `0 0 40px hsl(${h},85%,60%)` : '0 0 20px #ff2020';
+      feedbackAlpha = 1;
+      if (iWon) { spawnChordBurst(h, rootPos.x, rootPos.y, 1, true); spawnSynthHit(h); }
+      lockedOut = false; // clear any local lockout on round end
+    } else {
+      feedbackEl.textContent      = earTraining ? `✓  ${display}` : '✓';
+      feedbackEl.style.color      = `hsl(${h},85%,75%)`;
+      feedbackEl.style.textShadow = `0 0 40px hsl(${h},85%,60%)`;
+      feedbackAlpha = 1;
+      spawnChordBurst(h, rootPos.x, rootPos.y, 1, true);
+      spawnSynthHit(h);
+    }
   })
-  .on('FAIL', ({ display }) => {
+  .on('FAIL', ({ display, draw }) => {
     if (!multiplayer.isClient) return;
     gamePhase = 'fail';
-    feedbackEl.textContent      = earTraining ? `✗  ${display}` : '✗';
-    feedbackEl.style.color      = '#ff4040';
-    feedbackEl.style.textShadow = '0 0 30px #ff2020';
+    lockedOut = false;
+    if (draw) {
+      feedbackEl.textContent      = 'draw';
+      feedbackEl.style.color      = 'rgba(255,255,255,0.4)';
+      feedbackEl.style.textShadow = 'none';
+    } else {
+      feedbackEl.textContent      = earTraining ? `✗  ${display}` : '✗';
+      feedbackEl.style.color      = '#ff4040';
+      feedbackEl.style.textShadow = '0 0 30px #ff2020';
+    }
     feedbackAlpha = 1;
     if (currentChallenge) challengeNameEl.style.opacity = '0.35';
   })
-  .on('SCORE_UPDATE', ({ score: s, levelIdx: li, streakCount: sc, streakLevels: sl, remoteScore: rs }) => {
+  .on('SCORE_UPDATE', ({ score: s, levelIdx: li, streakCount: sc, streakLevels: sl, remoteScore: rs,
+                         hostScore, clientScore, roundsPlayed: rp }) => {
     if (!multiplayer.isClient) return;
-    score = s; levelIdx = li; streakCount = sc; streakLevels = sl;
+    if (hostScore !== undefined) {
+      // Competitive: client is Bob → clientScore = mine, hostScore = opponent's
+      score = clientScore ?? 0; remoteScore = hostScore ?? 0;
+      if (rp !== undefined) roundsPlayed = rp;
+    } else {
+      // Co-op
+      score = s; streakCount = sc; streakLevels = sl;
+      if (rs !== undefined) { remoteScore = rs; }
+    }
+    levelIdx = Math.min(li, GAME_CONFIG.levels.length - 1);
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
     gameEngine._updateStreakDisplay();
     if (levelIdx >= 9) _unlockEarMode();
-    if (rs !== undefined) { remoteScore = rs; _updateRemoteScore(); }
+    _updateRemoteScore();
+  })
+  .on('LOCKOUT', ({ ms }) => {
+    if (!multiplayer.isClient) return;
+    lockedOut = true;
+    hintLabelEl.textContent = 'wrong — locked out';
+    feedbackEl.textContent = '✗'; feedbackEl.style.color = '#ff4040';
+    feedbackEl.style.textShadow = '0 0 20px #ff2020'; feedbackAlpha = 0.8;
+    setTimeout(() => { lockedOut = false; if (gamePhase === 'play') hintLabelEl.textContent = ''; }, ms);
   })
   .on('GAME_MODE', ({ mode }) => {
     if (!multiplayer.isClient) return;

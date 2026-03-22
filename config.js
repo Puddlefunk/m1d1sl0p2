@@ -55,6 +55,7 @@ const GAME_CONFIG = {
   ],
   scoring: { basePoints:100, timeBonusMax:100, streakBonusPerHit:15, wrongChordPenalty:10, timeoutPenalty:30, extensionBonus:20, pentatonicBonus:10 },
   timing:  { timerPresets:[3,5,10,0], defaultTimer:5 },
+  competitive: { lockoutMs:1500, roundsPerLevel:8 },
   // Prices for each module type (per purchase, unlimited purchases)
   modulePrices: {
     'osc-sine': 400, 'osc-saw': 600, 'osc-tri': 480, 'osc-sq': 600,
