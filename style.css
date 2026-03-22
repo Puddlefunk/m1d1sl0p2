@@ -86,6 +86,22 @@ canvas { display: block; }
 #game-controls #keys-btn,
 #game-controls #mode-panel-btn,
 #game-controls #midi-learn-btn { margin-left: 10px; }
+#bpm-display {
+  font-family: monospace; font-size: 11px; letter-spacing: 1px;
+  color: rgba(255,255,255,.35); min-width: 2.5ch; text-align: right;
+  user-select: none;
+}
+#bpm-ext-btn {
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+  color: rgba(255,255,255,.25); font-family: monospace; font-size: 11px;
+  padding: 5px 8px; cursor: pointer; letter-spacing: 2px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+#bpm-ext-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
+#bpm-ext-btn.active {
+  border-color: rgba(255,255,255,.5); color: rgba(255,255,255,.85);
+  background: rgba(255,255,255,.10);
+}
 #mode-btn, #shop-btn, #mode-panel-btn, #keys-btn, #mods-btn {
   background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
   color: rgba(255,255,255,.5); font-family: monospace; font-size: 11px;

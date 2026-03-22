@@ -149,6 +149,11 @@ window.addEventListener('resize', resizeCanvas);
 
 const statusEl        = document.getElementById('status');
 const bpmEl           = document.getElementById('bpm');
+const bpmDisplayEl    = document.getElementById('bpm-display');
+function _setBpmText(txt) {
+  bpmEl.textContent = txt;
+  if (bpmDisplayEl) bpmDisplayEl.textContent = txt.replace(' bpm', '');
+}
 const modeBtnEl       = document.getElementById('mode-btn');
 const earBtnEl        = null; // removed — EAR is now a mode option in the mode panel
 const shopBtnEl       = document.getElementById('shop-btn');
@@ -936,7 +941,7 @@ function loadState() {
     if (data.controlsBarPos) controlsBarPos = data.controlsBarPos;
     if (data.useMidiClock !== undefined) useMidiClock = data.useMidiClock;
     if (data.internalBpm) { internalBpm = data.internalBpm; internalBpmActive = data.internalBpmActive ?? false; }
-    if (internalBpmActive) bpmEl.textContent = `${internalBpm} bpm`;
+    if (internalBpmActive) _setBpmText(`${internalBpm} bpm`);
     if (data.fx) Object.assign(FX, data.fx);
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
@@ -2125,7 +2130,7 @@ multiplayer
   .on('HELLO', ({ registry: snap, game }) => {
     selectedMode = game.selectedMode ?? 'play';
     _syncModePanel();
-    if (game.internalBpmActive) { internalBpm = game.internalBpm ?? 120; internalBpmActive = true; bpmEl.textContent = `${internalBpm} bpm`; }
+    if (game.internalBpmActive) { internalBpm = game.internalBpm ?? 120; internalBpmActive = true; _setBpmText(`${internalBpm} bpm`); }
     levelIdx    = Math.min(game.levelIdx, GAME_CONFIG.levels.length - 1);
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
     hudEl.style.display = 'block';
@@ -2396,6 +2401,7 @@ function _syncModeToggles() {
     btn.classList.toggle('on', !!FX[key]);
   });
   document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
+  document.getElementById('bpm-ext-btn')?.classList.toggle('active', useMidiClock);
 }
 
 document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
@@ -2407,12 +2413,14 @@ document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
   });
 });
 
-document.getElementById('opt-midiclock')?.addEventListener('click', () => {
+function _toggleMidiClock() {
   useMidiClock = !useMidiClock;
-  if (!useMidiClock) { bpm = 0; clockTimes = []; bpmEl.textContent = internalBpmActive ? `${internalBpm} bpm` : ''; }
+  if (!useMidiClock) { bpm = 0; clockTimes = []; _setBpmText(internalBpmActive ? `${internalBpm} bpm` : ''); }
   _syncModeToggles();
   saveState();
-});
+}
+document.getElementById('opt-midiclock')?.addEventListener('click', _toggleMidiClock);
+document.getElementById('bpm-ext-btn')?.addEventListener('click', _toggleMidiClock);
 
 function _openModePanel()  { setControlsPos(controlsBarPos); modePanelEl.classList.add('open'); modePanelBtn.classList.add('panel-open'); }
 function _closeModePanel() { modePanelEl.classList.remove('open'); modePanelBtn.classList.remove('panel-open'); }
@@ -2562,7 +2570,7 @@ multiplayer.on('CHAT', ({ text }) => chatAppend(text, multiplayer.isHost ? 'bob'
 
 multiplayer.on('BPM_UPDATE', ({ bpm: b }) => {
   internalBpm = b; internalBpmActive = true;
-  bpmEl.textContent = `${internalBpm} bpm`;
+  _setBpmText(`${internalBpm} bpm`);
 });
 
 noteInputSystem.register(new PianoLayout());
@@ -2576,11 +2584,11 @@ bpmEl.addEventListener('click', () => {
   const now = performance.now();
   _tapTimes = _tapTimes.filter(t => now - t < 3000);
   _tapTimes.push(now);
-  if (_tapTimes.length < 2) { bpmEl.textContent = 'TAP...'; return; }
+  if (_tapTimes.length < 2) { _setBpmText('TAP...'); return; }
   const avg = (_tapTimes.at(-1) - _tapTimes[0]) / (_tapTimes.length - 1);
   internalBpm = Math.max(40, Math.min(240, Math.round(60000 / avg)));
   internalBpmActive = true;
-  bpmEl.textContent = `${internalBpm} bpm`;
+  _setBpmText(`${internalBpm} bpm`);
   saveState();
   if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
 });
@@ -2594,10 +2602,10 @@ if (!navigator.requestMIDIAccess) {
       if (cmd===0xF8) {
         if (!useMidiClock) return;
         clockTimes.push(performance.now()); if(clockTimes.length>48)clockTimes.shift();
-        if(clockTimes.length>=4){const rc=clockTimes.slice(-24);if(rc.length>=2){const avg=(rc.at(-1)-rc[0])/(rc.length-1);bpm=Math.round(60000/(avg*24));bpmEl.textContent=bpm>0?`${bpm} bpm`:'';}}
+        if(clockTimes.length>=4){const rc=clockTimes.slice(-24);if(rc.length>=2){const avg=(rc.at(-1)-rc[0])/(rc.length-1);bpm=Math.round(60000/(avg*24));_setBpmText(bpm>0?`${bpm} bpm`:'');}}
         pulseCount=(pulseCount+1)%24; lastPulseTime=performance.now(); return;
       }
-      if (cmd===0xFC){ if(useMidiClock){bpm=0;bpmEl.textContent='';} return;}
+      if (cmd===0xFC){ if(useMidiClock){bpm=0;_setBpmText('');} return;}
       if (cmd===0xFA||cmd===0xFB) return;
       if ((cmd&0xf0)===0xB0) {
         if (midiLearnMode&&midiLearnParam) {
