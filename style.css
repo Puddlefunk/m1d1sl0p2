@@ -13,7 +13,7 @@ canvas { display: block; }
   width: 7px; height: 7px; border-radius: 50%;
   display: inline-block; transition: background .4s;
 }
-.mp-solo       { background: rgba(255,255,255,.15); }
+.mp-solo       { background: rgba(255,60,60,.55); }
 .mp-connecting { background: rgba(255,200,60,.6); animation: mp-pulse 1s ease-in-out infinite; }
 .mp-host       { background: rgba(80,255,140,.7); }
 .mp-client     { background: rgba(60,200,255,.7); }
