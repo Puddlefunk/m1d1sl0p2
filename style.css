@@ -83,7 +83,6 @@ canvas { display: block; }
 }
 /* Visual group separators */
 #game-controls .key-selector,
-#game-controls #keys-btn,
 #game-controls #mode-panel-btn,
 #game-controls #midi-learn-btn { margin-left: 10px; }
 #bpm-display {

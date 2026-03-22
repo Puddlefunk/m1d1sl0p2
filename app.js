@@ -2074,7 +2074,7 @@ function dispatchCommand(v) {
   const ms   = _dm ? Math.min(45, parseInt(_dm[2])) * 1000 : 6000;
 
   if (base==='help') { consolePrint('COMMANDS (prefix > to run):\n  rules     — how to play\n  reset     — reset options\n  visuals   — visual toggles\n  controls  — button controls\n  cheats    — cheat codes\n  mp        — multiplayer status\n\nplain text sends as chat when connected'); return; }
-  if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  fxon        — enable all effects\n  fxoff       — disable all effects'); return; }
+  if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  burn        — trigger fractal burn clear\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  keys        — toggle on-screen keyboard\n  mods        — toggle synth modules\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  fxon        — enable all effects\n  fxoff       — disable all effects'); return; }
   if (base==='cheats') { consolePrint('CHEATS:\n  idkfa   — +5000 pts\n  idclip  — next level\n  iddqd   — max level + unlock shop'); return; }
   if (base==='controls') { consolePrint('CONTROLS:\n  makebutton <cmd>   — add a quick-access button\n  removebutton <cmd> — remove a button'); return; }
   if (base==='rules') { consolePrint('HOW TO PLAY:\n  1. Press PLAY and pick a key/scale\n  2. Watch the chord name — that\'s your challenge\n  3. Play those notes on keyboard or MIDI\n  4. Score points → level up → buy synth modules\n  5. Patch cables between modules to shape your sound'); return; }
@@ -2133,6 +2133,8 @@ function dispatchCommand(v) {
     consolePrint(`mode: ${selectedMode}`, ms); return;
   }
   if (base==='screenrip')  { tog(showScreenRipples,  v => showScreenRipples = v,   'screen ripples'); return; }
+  if (base==='keys') { _toggleKeys(); consolePrint(`keyboard: ${showKeyboard ? 'ON' : 'OFF'}`, ms); return; }
+  if (base==='mods') { _toggleMods(); consolePrint(`modules: ${showModules ? 'ON' : 'OFF'}`, ms); return; }
   if (base==='fxon')  { Object.keys(FX).forEach(k => FX[k] = true);  consolePrint('all effects ON', ms);  return; }
   if (base==='fxoff') { Object.keys(FX).forEach(k => FX[k] = false); consolePrint('all effects OFF', ms); return; }
   if (base.startsWith('fol ')) {
@@ -2593,6 +2595,8 @@ function _syncModeToggles() {
     const key = btn.dataset.fx;
     btn.classList.toggle('on', !!FX[key]);
   });
+  document.getElementById('opt-keys')?.classList.toggle('on', showKeyboard);
+  document.getElementById('opt-mods')?.classList.toggle('on', showModules);
   document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
   document.getElementById('bpm-ext-btn')?.classList.toggle('active', useMidiClock);
   bpmDisplayEl?.classList.toggle('ext-active', useMidiClock);
@@ -2896,20 +2900,10 @@ Object.defineProperties(window, {
   showScreenRipples:  { get(){ return FX.screenRipples; }, set(v){ FX.screenRipples = v; } },
 });
 const panelsContainerEl = document.getElementById('panels-container');
-// KEYS / MODS toggles (buttons are static HTML in #game-controls)
-(function initVisToggles() {
-  const keysBtn = document.getElementById('keys-btn');
-  const modsBtn = document.getElementById('mods-btn');
-  keysBtn?.addEventListener('click', () => {
-    showKeyboard = !showKeyboard;
-    keysBtn.classList.toggle('active', showKeyboard);
-  });
-  modsBtn?.addEventListener('click', () => {
-    showModules = !showModules;
-    panelsContainerEl.style.visibility = showModules ? '' : 'hidden';
-    modsBtn.classList.toggle('active', showModules);
-  });
-})();
+function _toggleKeys() { showKeyboard = !showKeyboard; _syncModeToggles(); }
+function _toggleMods() { showModules = !showModules; panelsContainerEl.style.visibility = showModules ? '' : 'hidden'; _syncModeToggles(); }
+document.getElementById('opt-keys')?.addEventListener('click', _toggleKeys);
+document.getElementById('opt-mods')?.addEventListener('click', _toggleMods);
 
 // Controls bar position
 function setControlsPos(pos) {

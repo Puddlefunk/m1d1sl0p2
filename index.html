@@ -40,8 +40,6 @@
   </div>
   <span id="bpm-display"></span>
   <button id="bpm-ext-btn" title="Toggle external MIDI clock">EXT</button>
-  <button id="keys-btn" class="active">KEYS</button>
-  <button id="mods-btn" class="active">MODS</button>
   <button id="mode-panel-btn">MENU</button>
   <button id="shop-btn" class="locked" title="Unlocks at Level 2">SHOP</button>
   <button id="midi-learn-btn" title="MIDI Learn: click, then click a knob, then turn an encoder">MIDI LEARN</button>
@@ -115,6 +113,14 @@
       </div>
     </div>
     <div class="mode-section" style="border-bottom:none;padding-bottom:10px;">
+      <div class="mode-toggle-row">
+        <span class="mode-toggle-label">KEYBOARD</span>
+        <button class="mode-toggle on" id="opt-keys"></button>
+      </div>
+      <div class="mode-toggle-row">
+        <span class="mode-toggle-label">MODULES</span>
+        <button class="mode-toggle on" id="opt-mods"></button>
+      </div>
       <div class="mode-toggle-row">
         <span class="mode-toggle-label">QWERTY KEY GUIDE</span>
         <button class="mode-toggle on" id="opt-keyguides" data-fx="keyGuides"></button>
