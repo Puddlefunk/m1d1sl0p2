@@ -1645,23 +1645,24 @@ document.addEventListener('keyup', e => {
 const canvasRect = () => canvas.getBoundingClientRect();
 
 // Pointer events route note input through NoteInputSystem (piano keys + FOL nodes).
+// #pc has pointer-events:none so events fall through to #c (main canvas).
 // Patch system jacks have priority — if a jack is nearby, yield to the click handler.
-patchCanvas.addEventListener('pointerdown', e => {
-  const r = patchCanvas.getBoundingClientRect();
+canvas.addEventListener('pointerdown', e => {
+  const r = canvas.getBoundingClientRect();
   const cx = e.clientX - r.left, cy = e.clientY - r.top;
   if (patchSystem?.hitTestJack(cx, cy)) return; // jack nearby — let document click handle it
   if (noteInputSystem.pointerDown(cx, cy, e.pointerId)) {
     e.preventDefault();
-    patchCanvas.setPointerCapture(e.pointerId);
+    canvas.setPointerCapture(e.pointerId);
   }
 });
-patchCanvas.addEventListener('pointermove', e => {
+canvas.addEventListener('pointermove', e => {
   if (!noteInputSystem.pointers.has(e.pointerId)) return;
-  const r = patchCanvas.getBoundingClientRect();
+  const r = canvas.getBoundingClientRect();
   noteInputSystem.pointerMove(e.clientX - r.left, e.clientY - r.top, e.pointerId);
 });
-patchCanvas.addEventListener('pointerup',     e => noteInputSystem.pointerUp(e.pointerId));
-patchCanvas.addEventListener('pointercancel', e => noteInputSystem.pointerUp(e.pointerId));
+canvas.addEventListener('pointerup',     e => noteInputSystem.pointerUp(e.pointerId));
+canvas.addEventListener('pointercancel', e => noteInputSystem.pointerUp(e.pointerId));
 
 // Document-level click handles patching — panels intercept canvas clicks so we can't use canvas only
 document.addEventListener('click', e => {
