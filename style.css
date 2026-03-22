@@ -264,9 +264,11 @@ body.mp-connected .mode-disconnect-btn { display: block; }
   color: rgba(255,255,255,.55); font-family: monospace; font-size: 10px;
   padding: 5px 8px; cursor: pointer; letter-spacing: 1px;
   appearance: none; -webkit-appearance: none;
-  outline: none;
+  outline: none; box-shadow: none;
 }
 .key-selector select:hover { border-color: rgba(255,255,255,.32); color: rgba(255,255,255,.85); }
+.key-selector select:focus,
+.key-selector select:focus-visible { outline: none; box-shadow: none; border-color: rgba(255,255,255,.32); }
 .key-selector select option { background: #111; color: rgba(255,255,255,.85); }
 
 #hud {

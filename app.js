@@ -154,7 +154,7 @@ const bpmEl           = document.getElementById('bpm');
 const bpmDisplayEl    = document.getElementById('bpm-display');
 function _setBpmText(txt) {
   bpmEl.textContent = txt;
-  if (bpmDisplayEl && !bpmDisplayEl.querySelector('input')) {
+  if (bpmDisplayEl) {
     const num = txt.replace(' bpm', '').trim();
     bpmDisplayEl.textContent = num || String(internalBpm || 120);
   }
@@ -2736,33 +2736,33 @@ bpmEl.addEventListener('click', () => {
   if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
 });
 
-// Click #bpm-display to type a BPM value directly
+// Drag #bpm-display up/down to adjust BPM (like a line fader)
 if (bpmDisplayEl) {
-  bpmDisplayEl.style.cursor = 'text';
-  bpmDisplayEl.title = 'click to set BPM';
-  bpmDisplayEl.addEventListener('click', () => {
+  bpmDisplayEl.style.cursor = 'ns-resize';
+  bpmDisplayEl.title = 'drag up/down to set BPM';
+  let _bpmDragStartY = 0, _bpmDragStartVal = 0, _bpmDragging = false;
+  bpmDisplayEl.addEventListener('pointerdown', e => {
     if (multiplayer.isClient) return;
-    if (bpmDisplayEl.querySelector('input')) return;
-    const inp = document.createElement('input');
-    inp.type = 'number'; inp.min = 40; inp.max = 240;
-    inp.value = effectiveBpm();
-    inp.style.cssText = 'width:3.5ch;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.4);color:inherit;font:inherit;outline:none;padding:0;text-align:right;';
-    bpmDisplayEl.textContent = '';
-    bpmDisplayEl.appendChild(inp);
-    inp.focus(); inp.select();
-    function commit() {
-      const v = Math.max(40, Math.min(240, parseInt(inp.value, 10) || internalBpm));
+    _bpmDragging = true;
+    _bpmDragStartY = e.clientY;
+    _bpmDragStartVal = effectiveBpm();
+    bpmDisplayEl.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  bpmDisplayEl.addEventListener('pointermove', e => {
+    if (!_bpmDragging) return;
+    const delta = Math.round((_bpmDragStartY - e.clientY) / 1.5);
+    const v = Math.max(40, Math.min(240, _bpmDragStartVal + delta));
+    if (v !== internalBpm) {
       internalBpm = v; internalBpmActive = true;
       _setBpmText(`${internalBpm} bpm`);
-      saveState();
-      if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
     }
-    inp.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { commit(); inp.blur(); }
-      if (e.key === 'Escape') { _setBpmText(internalBpmActive ? `${internalBpm} bpm` : ''); bpmDisplayEl.textContent = String(internalBpm); }
-      e.stopPropagation();
-    });
-    inp.addEventListener('blur', () => { commit(); });
+  });
+  bpmDisplayEl.addEventListener('pointerup', e => {
+    if (!_bpmDragging) return;
+    _bpmDragging = false;
+    saveState();
+    if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
   });
 }
 
