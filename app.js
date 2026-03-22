@@ -151,6 +151,14 @@ function buildKeyPool(root, scaleName) {
     if (!chord.notes || chord.notes.length < 4) return;
     pool.push({ display: `${note}${_Q9_DISP[q]}`, notes: chord.notes, diff: 3 });
   });
+  // Suspensions (diff 4) — sus2 and sus4 on each scale degree
+  notes.slice(0,7).forEach(note => {
+    for (const type of ['sus2','sus4']) {
+      const chord = Chord.get(`${note}${type}`);
+      if (!chord.notes || chord.notes.length < 3) return;
+      pool.push({ display: `${note}${type}`, notes: chord.notes, diff: 4 });
+    }
+  });
   return pool.length >= 3 ? pool : null;
 }
 
