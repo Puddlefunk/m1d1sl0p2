@@ -65,6 +65,7 @@ let _bonusExtGiven     = false;
 let _bonusPentGiven    = false;
 
 const activeNotes = new Map();
+const remoteNotes = new Map(); // notes held by the remote co-op player
 let hintNotes     = [];
 let kbOctave      = 4;
 let kbHeld        = new Map();
@@ -411,6 +412,7 @@ function drawKeyboard(kCtx) {
   const _hintsOn = showKeyGuides && !earTraining && gameMode==='play' && currentChallenge && (gamePhase==='hint'||gamePhase==='play');
   const cPCs = new Set(_hintsOn ? noteInputSystem.hintsFor(currentChallenge.notes).map(m => m%12) : []);
   const aPCs=new Set([...activeNotes.keys()].map(m=>m%12));
+  const rPCs=new Set([...remoteNotes.keys()].map(m=>m%12));
   const fS=Math.max(8,Math.round(kW*0.3)), bfS=Math.max(6,Math.round(bW*0.42));
   const lS=Math.max(7,Math.round(kW*0.25)), blS=Math.max(6,Math.round(bW*0.34));
   const k2l={}; for(const [k,v] of Object.entries(kbMap)) k2l[v]=k===';'?';':k.toUpperCase();
@@ -420,10 +422,10 @@ function drawKeyboard(kCtx) {
   for (let oct=0;oct<NO;oct++) for (const pc of WP) {
     const x=sX+wi*kW, m=(kbOctave+oct)*12+pc;
     kCtx.beginPath(); kCtx.rect(x+0.5,sY,kW-1,kH);
-    kCtx.fillStyle=aPCs.has(pc)?`hsla(${hue(m)},75%,55%,0.45)`:cPCs.has(pc)?`hsla(${hue(m)},65%,22%,0.9)`:pc===0?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.05)';
+    kCtx.fillStyle=aPCs.has(pc)?`hsla(${hue(m)},75%,55%,0.45)`:rPCs.has(pc)?'hsla(185,75%,55%,0.45)':cPCs.has(pc)?`hsla(${hue(m)},65%,22%,0.9)`:pc===0?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.05)';
     kCtx.fill(); kCtx.strokeStyle='rgba(255,255,255,0.1)'; kCtx.lineWidth=0.5; kCtx.stroke();
-    const lb=k2l[m]; if(lb){kCtx.font=`${lS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(pc)?'rgba(0,0,0,0.55)':'rgba(255,255,255,0.30)';kCtx.fillText(lb,x+kW/2,sY+lS+3);}
-    if(aPCs.has(pc)||cPCs.has(pc)){kCtx.font=`bold ${fS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(pc)?`hsl(${hue(m)},90%,88%)`:`hsla(${hue(m)},85%,70%,0.9)`;kCtx.fillText(NOTE_NAMES[pc],x+kW/2,sY+kH-7);}
+    const lb=k2l[m]; if(lb){kCtx.font=`${lS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=(aPCs.has(pc)||rPCs.has(pc))?'rgba(0,0,0,0.55)':'rgba(255,255,255,0.30)';kCtx.fillText(lb,x+kW/2,sY+lS+3);}
+    if(aPCs.has(pc)||rPCs.has(pc)||cPCs.has(pc)){kCtx.font=`bold ${fS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(pc)?`hsl(${hue(m)},90%,88%)`:rPCs.has(pc)?'hsl(185,90%,88%)':`hsla(${hue(m)},85%,70%,0.9)`;kCtx.fillText(NOTE_NAMES[pc],x+kW/2,sY+kH-7);}
     wi++;
   }
   wi=0;
@@ -431,10 +433,10 @@ function drawKeyboard(kCtx) {
     if (pc in W2B) {
       const bPc=W2B[pc], m=(kbOctave+oct)*12+bPc, bx=sX+(wi+1)*kW-bW/2;
       kCtx.beginPath(); kCtx.rect(bx,sY,bW,bH);
-      kCtx.fillStyle=aPCs.has(bPc)?`hsla(${hue(m)},75%,48%,0.45)`:cPCs.has(bPc)?`hsla(${hue(m)},65%,18%,1)`:'rgb(12,12,12)';
+      kCtx.fillStyle=aPCs.has(bPc)?`hsla(${hue(m)},75%,48%,0.45)`:rPCs.has(bPc)?'hsla(185,75%,48%,0.45)':cPCs.has(bPc)?`hsla(${hue(m)},65%,18%,1)`:'rgb(12,12,12)';
       kCtx.fill(); kCtx.strokeStyle='rgba(255,255,255,0.08)'; kCtx.lineWidth=0.5; kCtx.stroke();
-      const lb=k2l[m]; if(lb){kCtx.font=`${blS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(bPc)?'rgba(0,0,0,0.5)':'rgba(255,255,255,0.38)';kCtx.fillText(lb,bx+bW/2,sY+blS+4);}
-      if(aPCs.has(bPc)||cPCs.has(bPc)){kCtx.font=`bold ${bfS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(bPc)?`hsl(${hue(m)},90%,88%)`:`hsla(${hue(m)},85%,70%,0.9)`;kCtx.fillText(NOTE_NAMES[bPc],bx+bW/2,sY+bH-5);}
+      const lb=k2l[m]; if(lb){kCtx.font=`${blS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=(aPCs.has(bPc)||rPCs.has(bPc))?'rgba(0,0,0,0.5)':'rgba(255,255,255,0.38)';kCtx.fillText(lb,bx+bW/2,sY+blS+4);}
+      if(aPCs.has(bPc)||rPCs.has(bPc)||cPCs.has(bPc)){kCtx.font=`bold ${bfS}px monospace`;kCtx.textAlign='center';kCtx.fillStyle=aPCs.has(bPc)?`hsl(${hue(m)},90%,88%)`:rPCs.has(bPc)?'hsl(185,90%,88%)':`hsla(${hue(m)},85%,70%,0.9)`;kCtx.fillText(NOTE_NAMES[bPc],bx+bW/2,sY+bH-5);}
     }
     wi++;
   }
@@ -522,6 +524,7 @@ class GameEngine {
     earTraining = false;
     currentChallenge = null;
     hintNotes = [];
+    multiplayer.send('GAME_MODE', { mode: 'practice' });
     challengeEl.style.display = 'none';
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
@@ -567,6 +570,7 @@ class GameEngine {
     challengeNameEl.style.opacity = '1';
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
+    multiplayer.send('CHALLENGE', { display: chord.display, notes: chord.notes, earTraining });
   }
 
   _buildDeck() {
@@ -588,7 +592,7 @@ class GameEngine {
 
   checkSuccess() {
     if (gameMode !== 'play' || gamePhase !== 'play' || !currentChallenge) return;
-    const played   = new Set([...activeNotes.keys()].map(m => normPc(midiToPitchClass(m))));
+    const played   = new Set([...activeNotes.keys(), ...remoteNotes.keys()].map(m => normPc(midiToPitchClass(m))));
     const required = currentChallenge.notes.map(normPc);
     if (required.every(pc => played.has(pc))) { this.triggerSuccess(); return; }
     if (!_wrongPenaltyGiven && played.size >= required.length) {
@@ -630,6 +634,7 @@ class GameEngine {
     feedbackEl.style.color   = `hsl(${currentChallenge.h},85%,75%)`;
     feedbackEl.style.textShadow = `0 0 40px hsl(${currentChallenge.h},85%,60%)`;
     feedbackAlpha = 1;
+    multiplayer.send('SUCCESS', { display: currentChallenge.display, h: currentChallenge.h });
     setTimeout(() => { if (gameMode === 'play') this.startNextChallenge(); }, 2000);
   }
 
@@ -663,6 +668,7 @@ class GameEngine {
     feedbackEl.style.textShadow = '0 0 30px #ff2020';
     feedbackAlpha = 1;
     challengeNameEl.style.opacity = '0.35';
+    multiplayer.send('FAIL', { display: currentChallenge?.display ?? '' });
     setTimeout(() => { if (gameMode === 'play' && gamePhase === 'fail') this.startNextChallenge(); }, 1500);
   }
 
@@ -689,6 +695,7 @@ class GameEngine {
     scoreValEl.textContent = score.toLocaleString();
     this._updateStreakDisplay();
     saveState();
+    multiplayer.send('SCORE_UPDATE', { score, levelIdx, streakCount, streakLevels });
   }
 
   _doLevelUp(streakTriggered = false) {
@@ -1459,8 +1466,9 @@ function refreshNoteDisplay() {
 }
 
 function runDetection() {
-  if (activeNotes.size<2) { detectedLabel=''; labelFade=0; return; }
-  const unique=[...new Set([...activeNotes.keys()].map(midiToPitchClass))];
+  const allNoteKeys = [...activeNotes.keys(), ...remoteNotes.keys()];
+  if (allNoteKeys.length<2) { detectedLabel=''; labelFade=0; return; }
+  const unique=[...new Set(allNoteKeys.map(midiToPitchClass))];
   let label='';
   const chords=Chord.detect(unique);
   if (chords.length) label=chords[0];
@@ -1484,13 +1492,16 @@ function onNoteOn(note, velocity) {
   if (showParticleRings) spawnRing(note,velocity);
   onNoteOnFlower(note);
   audioGraph.playNote(note,velocity);
+  multiplayer.send('NOTE_ON', { midi: note, velocity });
   runDetection(); refreshNoteDisplay();
-  if (gameMode==='play'&&gamePhase==='play') {
-    phrasePeakNotes=Math.max(phrasePeakNotes,activeNotes.size);
-    gameEngine.checkSuccess();
-  }
-  if (gameMode==='play'&&gamePhase==='success') {
-    gameEngine.checkBonusNote(note);
+  if (!multiplayer.isClient) {
+    if (gameMode==='play'&&gamePhase==='play') {
+      phrasePeakNotes=Math.max(phrasePeakNotes,activeNotes.size+remoteNotes.size);
+      gameEngine.checkSuccess();
+    }
+    if (gameMode==='play'&&gamePhase==='success') {
+      gameEngine.checkBonusNote(note);
+    }
   }
 }
 
@@ -1498,8 +1509,9 @@ function onNoteOff(note) {
   audioGraph.stopNote(note);
   onNoteOffFlower(note);
   activeNotes.delete(note);
+  multiplayer.send('NOTE_OFF', { midi: note });
   runDetection(); refreshNoteDisplay();
-  if (gameMode==='play'&&gamePhase==='play'&&activeNotes.size===0) {
+  if (!multiplayer.isClient && gameMode==='play'&&gamePhase==='play'&&activeNotes.size===0&&remoteNotes.size===0) {
     if (phrasePeakNotes>=(currentChallenge?.notes.length??3)&&!phraseMatched) gameEngine.triggerFail();
     phrasePeakNotes=0;
   }
@@ -1572,7 +1584,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#shop-panel')||e.target.closest('#console-wrap')||e.target.closest('#game-controls')||e.target.closest('#hud')||e.target.closest('#midi-learn-btn')) return;
   const r=canvasRect(), cx=e.clientX-r.left, cy=e.clientY-r.top;
   if (noteInputSystem.hitTestAny(cx, cy)) return; // don't start patch over note input areas
-  patchSystem?.handleClick(cx, cy);
+  if (!multiplayer.isClient) patchSystem?.handleClick(cx, cy);
 });
 
 function releaseAllNotes() {
@@ -1814,6 +1826,14 @@ function dispatchCommand(v) {
     [...container.querySelectorAll('.custom-btn')].find(b => b.textContent === cmd.toUpperCase())?.remove();
     _saveBtns(); consolePrint(`button removed: ${cmd}`, ms); return;
   }
+  if (base==='mp'||base==='online') {
+    const st=multiplayer.state;
+    if (st==='solo')       consolePrint('multiplayer: solo\nshare the URL after pressing PLAY to invite a partner', ms);
+    else if (st==='connecting') consolePrint('multiplayer: connecting...', ms);
+    else if (st==='host')  consolePrint(`multiplayer: HOST — partner connected\njoin URL: ${multiplayer.getJoinUrl()}`, ms);
+    else if (st==='client') consolePrint('multiplayer: CLIENT — connected to host', ms);
+    return;
+  }
   if (base) consolePrint(`unknown: ${base}\ntype 'help' for directories`, ms);
 }
 
@@ -1833,6 +1853,186 @@ const patchSystem     = new PatchSystem(registry);
 const shopSystem      = new ShopSystem(registry);
 const gameEngine      = new GameEngine(registry, GAME_CONFIG);
 const noteInputSystem = new NoteInputSystem();
+
+// ─────────────────────────────────────────────────────────────
+// MULTIPLAYER
+// ─────────────────────────────────────────────────────────────
+const multiplayer = new MultiplayerSystem();
+
+multiplayer
+  .on('state-change', state => {
+    const dot      = document.getElementById('mp-dot');
+    const shareBtn = document.getElementById('mp-share-btn');
+    const overlay  = document.getElementById('mp-overlay');
+    if (dot) dot.className = 'mp-dot mp-' + state;
+    if (shareBtn) shareBtn.style.display = state === 'host' ? '' : 'none';
+    if (overlay)  overlay.style.display  = state === 'connecting' ? 'flex' : 'none';
+    if (state === 'client') {
+      shopBtnEl.classList.add('locked');
+      document.body.classList.add('mp-client');
+    }
+  })
+  .on('connected', () => {
+    consolePrint('co-op partner connected', 4000);
+    if (multiplayer.isHost && !multiplayer._registryWired) {
+      multiplayer._registryWired = true;
+      // Send full state snapshot to joining client
+      multiplayer.send('HELLO', {
+        registry: multiplayer.snapshotRegistry(registry),
+        game: {
+          score, levelIdx, streakCount, streakLevels, gameMode, earTraining,
+          challenge: currentChallenge
+            ? { display: currentChallenge.display, notes: currentChallenge.notes }
+            : null,
+        },
+      });
+      // Wire registry delta events → client
+      registry.addEventListener('module-added',   e => multiplayer.send('MODULE_ADD', e.detail));
+      registry.addEventListener('module-removed', e => multiplayer.send('MODULE_REMOVE', e.detail));
+      registry.addEventListener('param-changed',  e => multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value));
+      registry.addEventListener('patch-changed',  e => multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }));
+    }
+  })
+  .on('disconnected', () => {
+    consolePrint('co-op partner disconnected — solo mode', 5000);
+    for (const midi of remoteNotes.keys()) onNoteOffFlower(midi);
+    remoteNotes.clear();
+    document.body.classList.remove('mp-client');
+  })
+  // ── Incoming notes from partner ──
+  .on('NOTE_ON', ({ midi, velocity }) => {
+    remoteNotes.set(midi, { startTime: performance.now() });
+    onNoteOnFlower(midi);
+    runDetection(); refreshNoteDisplay();
+    if (multiplayer.isHost && gameMode === 'play') {
+      phrasePeakNotes = Math.max(phrasePeakNotes, activeNotes.size + remoteNotes.size);
+      if (gamePhase === 'play')    gameEngine.checkSuccess();
+      if (gamePhase === 'success') gameEngine.checkBonusNote(midi);
+    }
+  })
+  .on('NOTE_OFF', ({ midi }) => {
+    remoteNotes.delete(midi);
+    onNoteOffFlower(midi);
+    runDetection(); refreshNoteDisplay();
+    if (multiplayer.isHost && gameMode === 'play' && gamePhase === 'play' && activeNotes.size === 0 && remoteNotes.size === 0) {
+      if (phrasePeakNotes >= (currentChallenge?.notes.length ?? 3) && !phraseMatched) gameEngine.triggerFail();
+      phrasePeakNotes = 0;
+    }
+  })
+  // ── Client receives full state on join ──
+  .on('HELLO', ({ registry: snap, game }) => {
+    multiplayer.replaySnapshot(registry, snap);
+    audioGraph.ensure();
+    score       = game.score;
+    levelIdx    = Math.min(game.levelIdx, GAME_CONFIG.levels.length - 1);
+    streakCount = game.streakCount;  streakLevels = game.streakLevels;
+    scoreValEl.textContent = score.toLocaleString();
+    levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
+    hudEl.style.display    = 'block';
+    shopBtnEl.classList.add('locked'); // client cannot shop
+    if (levelIdx >= 9) earBtnEl.classList.remove('locked');
+    if (game.gameMode === 'play' && game.challenge) {
+      currentChallenge = { ...game.challenge, h: rootHue(game.challenge.display) };
+      gameMode    = 'play';
+      earTraining = game.earTraining;
+      challengeEl.style.display    = 'block';
+      challengeNameEl.textContent  = game.earTraining ? '?' : game.challenge.display;
+      challengeNameEl.style.opacity = '1';
+      challengeNameEl.style.color  = `hsl(${currentChallenge.h},85%,72%)`;
+      challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
+      hintLabelEl.textContent = '';
+      hintNotes = game.earTraining ? [] : game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+    }
+    consolePrint('connected — mirroring host synth', 5000);
+  })
+  // ── Client mirrors game events ──
+  .on('CHALLENGE', ({ display, notes, earTraining: et }) => {
+    if (!multiplayer.isClient) return;
+    currentChallenge = { display, notes, h: rootHue(display) };
+    gamePhase   = 'play';
+    earTraining = et;
+    challengeEl.style.display    = 'block';
+    challengeNameEl.style.opacity = '1';
+    if (et) {
+      challengeNameEl.textContent      = '?';
+      challengeNameEl.style.color      = 'rgba(255,255,255,0.35)';
+      challengeNameEl.style.textShadow = 'none';
+      hintLabelEl.textContent          = 'listen for the chord';
+      hintNotes = [];
+    } else {
+      challengeNameEl.textContent      = display;
+      challengeNameEl.style.color      = `hsl(${currentChallenge.h},85%,72%)`;
+      challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
+      hintLabelEl.textContent          = '';
+      hintNotes = notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+    }
+    timerBarEl.style.display = 'none';
+    timerSecsEl.style.display = 'none';
+  })
+  .on('SUCCESS', ({ display, h }) => {
+    if (!multiplayer.isClient) return;
+    gamePhase = 'success';
+    feedbackEl.textContent      = earTraining ? `✓  ${display}` : '✓';
+    feedbackEl.style.color      = `hsl(${h},85%,75%)`;
+    feedbackEl.style.textShadow = `0 0 40px hsl(${h},85%,60%)`;
+    feedbackAlpha = 1;
+    const rootPos = notePos(pcToMidi(normPc(currentChallenge?.notes[0] ?? 'C')));
+    spawnChordBurst(h, rootPos.x, rootPos.y, 1, true);
+    spawnSynthHit(h);
+  })
+  .on('FAIL', ({ display }) => {
+    if (!multiplayer.isClient) return;
+    gamePhase = 'fail';
+    feedbackEl.textContent      = earTraining ? `✗  ${display}` : '✗';
+    feedbackEl.style.color      = '#ff4040';
+    feedbackEl.style.textShadow = '0 0 30px #ff2020';
+    feedbackAlpha = 1;
+    if (currentChallenge) challengeNameEl.style.opacity = '0.35';
+  })
+  .on('SCORE_UPDATE', ({ score: s, levelIdx: li, streakCount: sc, streakLevels: sl }) => {
+    if (!multiplayer.isClient) return;
+    score = s; levelIdx = li; streakCount = sc; streakLevels = sl;
+    scoreValEl.textContent = score.toLocaleString();
+    levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
+    gameEngine._updateStreakDisplay();
+    if (levelIdx >= 9) earBtnEl.classList.remove('locked');
+  })
+  .on('GAME_MODE', ({ mode }) => {
+    if (!multiplayer.isClient) return;
+    if (mode === 'practice') {
+      gameMode = 'practice'; currentChallenge = null; hintNotes = [];
+      challengeEl.style.display = 'none';
+    }
+  })
+  // ── Client mirrors registry changes ──
+  .on('MODULE_ADD', ({ id, type, params }) => {
+    if (!multiplayer.isClient) return;
+    registry.modules.set(id, { id, type, params: { ...params } });
+    registry.dispatchEvent(new CustomEvent('module-added', { detail: { id, type, params } }));
+  })
+  .on('MODULE_REMOVE', ({ id }) => {
+    if (!multiplayer.isClient) return;
+    registry.removeModule(id);
+  })
+  .on('PARAM_CHANGE', ({ id, param, value }) => {
+    if (!multiplayer.isClient) return;
+    registry.setParam(id, param, value);
+  })
+  .on('PATCH_CHANGE', ({ patches }) => {
+    if (!multiplayer.isClient) return;
+    registry.patches = patches.map(p => ({ ...p }));
+    registry.dispatchEvent(new CustomEvent('patch-changed', { detail: { patches: registry.patches } }));
+  });
+
+multiplayer.init();
+
+// Share button — copies join URL to clipboard
+document.getElementById('mp-share-btn')?.addEventListener('click', () => {
+  const url = multiplayer.getJoinUrl();
+  if (!url) return;
+  navigator.clipboard.writeText(url).then(() => consolePrint('invite link copied!\nsend it to your partner', 5000))
+    .catch(() => consolePrint(`invite link:\n${url}`, 15000));
+});
 noteInputSystem.register(new PianoLayout());
 noteInputSystem.register(new FolLayout());
 

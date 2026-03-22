@@ -6,6 +6,38 @@ canvas { display: block; }
 #status { position: fixed; top: 14px; left: 20px; color: rgba(255,255,255,.35); font-family: monospace; font-size: 12px; z-index: 10; }
 #bpm    { position: fixed; top: 30px; left: 20px; color: rgba(255,255,255,.25); font-family: monospace; font-size: 12px; z-index: 10; }
 
+/* ── Multiplayer UI ── */
+#mp-ui { position: fixed; top: 50px; left: 20px; display: flex; align-items: center; gap: 7px; z-index: 10; }
+
+.mp-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; transition: background .4s;
+}
+.mp-solo       { background: rgba(255,255,255,.15); }
+.mp-connecting { background: rgba(255,200,60,.6); animation: mp-pulse 1s ease-in-out infinite; }
+.mp-host       { background: rgba(80,255,140,.7); }
+.mp-client     { background: rgba(60,200,255,.7); }
+@keyframes mp-pulse { 0%,100% { opacity:.4; } 50% { opacity:1; } }
+
+#mp-share-btn {
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
+  color: rgba(255,255,255,.5); font-family: monospace; font-size: 10px;
+  padding: 3px 10px; cursor: pointer; letter-spacing: 2px;
+  transition: background .15s, color .15s;
+}
+#mp-share-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
+
+#mp-overlay {
+  display: none; position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.7); align-items: center; justify-content: center;
+  font-family: monospace; font-size: 13px; color: rgba(255,255,255,.5);
+  letter-spacing: 3px;
+}
+
+/* Disable knob/jack interaction for client */
+body.mp-client .knob       { pointer-events: none; }
+body.mp-client .port-jack  { pointer-events: none; }
+
 #game-controls {
   position: fixed; bottom: 232px; left: 50%; transform: translateX(-50%);
   display: flex; gap: 8px; align-items: center; z-index: 10;

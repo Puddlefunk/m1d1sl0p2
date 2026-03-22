@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <title>M1D1SL0P2</title>
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -11,6 +12,15 @@
 <div id="audio-out-jack" class="port-jack" data-module="audio-out-0" data-port="in" style="--jh:0"></div>
 <div id="status">connecting to MIDI...</div>
 <div id="bpm"></div>
+
+<div id="mp-ui">
+  <span id="mp-dot" class="mp-dot mp-solo"></span>
+  <button id="mp-share-btn" style="display:none">SHARE</button>
+</div>
+
+<div id="mp-overlay">
+  <span>connecting to partner...</span>
+</div>
 
 <div id="game-controls">
   <button id="mode-btn">PLAY</button>
@@ -91,6 +101,7 @@ async function load(src) {
 await load('config.js');
 await load('audio.js');
 await load('synth-ui.js');
+await load('multiplayer.js');
 await load('app.js');
 </script>
 </body></html>
