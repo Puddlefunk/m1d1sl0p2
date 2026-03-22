@@ -134,9 +134,13 @@ const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 const patchCanvas = document.getElementById('pc');
 const patchCtx    = patchCanvas.getContext('2d');
+let controlsBarPos = 'below'; // 'below' | 'above' | 'top'
+let kbRiseOffset   = 46;     // extra px added to sY so keyboard clears controls bar
+
 function resizeCanvas() {
   canvas.width = patchCanvas.width = window.innerWidth;
   canvas.height = patchCanvas.height = window.innerHeight;
+  setControlsPos(controlsBarPos);
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
@@ -414,7 +418,7 @@ function drawKeyboard(kCtx) {
   const WP=[0,2,4,5,7,9,11], W2B={0:1,2:3,5:6,7:8,9:10};
   const maxW=Math.min(canvas.width-60,720), NW=14, NO=2;
   const kW=maxW/NW, kH=kW*4, bW=kW*0.58, bH=kH*0.60;
-  const sX=(canvas.width-maxW)/2, sY=canvas.height-kH-14;
+  const sX=(canvas.width-maxW)/2, sY=canvas.height-kH-14-kbRiseOffset;
   const _hintsOn = showKeyGuides && !earTraining && gameMode==='play' && currentChallenge && (gamePhase==='hint'||gamePhase==='play');
   const cPCs = new Set(_hintsOn ? noteInputSystem.hintsFor(currentChallenge.notes).map(m => m%12) : []);
   const aPCs=new Set([...activeNotes.keys()].map(m=>m%12));
@@ -451,7 +455,7 @@ function drawKeyboard(kCtx) {
 function getKeyAtPos(px, py) {
   const WP=[0,2,4,5,7,9,11], W2B={0:1,2:3,5:6,7:8,9:10};
   const maxW=Math.min(canvas.width-60,720), kW=maxW/14, kH=kW*4, bW=kW*0.58, bH=kH*0.60;
-  const sX=(canvas.width-maxW)/2, sY=canvas.height-kH-14;
+  const sX=(canvas.width-maxW)/2, sY=canvas.height-kH-14-kbRiseOffset;
   if (py<sY||py>sY+kH||px<sX||px>sX+maxW) return null;
   let wi=0;
   for (let oct=0;oct<2;oct++) for (const pc of WP) {
@@ -898,6 +902,8 @@ class GameEngine {
 function saveState() {
   const data = {
     score, levelIdx, streakCount, streakLevels,
+    controlsBarPos,
+    fx: { ...FX },
     modules: [...registry.modules.values()].filter(m=>m.type!=='audio-out').map(m => ({ type:m.type, params:{...m.params} })),
     patches: registry.patches,
     panelPositions: [...uiRenderer.panelMap.entries()].map(([id,el]) => ({
@@ -916,6 +922,8 @@ function loadState() {
     levelIdx     = Math.min(data.levelIdx ?? 0, GAME_CONFIG.levels.length-1);
     streakCount  = data.streakCount  ?? 0;
     streakLevels = data.streakLevels ?? (data.streak ? Math.min(Math.floor(data.streak / 4), 4) : 0);
+    if (data.controlsBarPos) controlsBarPos = data.controlsBarPos;
+    if (data.fx) Object.assign(FX, data.fx);
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
     hudEl.style.display = 'block';
@@ -976,7 +984,7 @@ function folBoundR() {
   const pad = 16;
   return Math.min(
     canvas.width  / 2 - pad,
-    canvas.height / 2 - kH - 14 - pad,  // clear keyboard bottom
+    canvas.height / 2 - kH - 14 - kbRiseOffset - pad,  // clear keyboard bottom
     canvas.height / 2 - 60              // clear top HUD
   ) * folScale;
 }
@@ -2227,8 +2235,24 @@ function _unlockEarMode() {
 
 function _syncModePanel() {
   document.querySelectorAll('.mode-opt').forEach(b => b.classList.toggle('active', b.dataset.mode === selectedMode));
-  if (modePanelBtn) modePanelBtn.textContent = selectedMode.toUpperCase();
+  _syncModeToggles();
 }
+
+function _syncModeToggles() {
+  document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
+    const key = btn.dataset.fx;
+    btn.classList.toggle('on', !!FX[key]);
+  });
+}
+
+document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.fx;
+    FX[key] = !FX[key];
+    _syncModeToggles();
+    saveState();
+  });
+});
 
 function _openModePanel()  { modePanelEl.classList.add('open');    modePanelBtn.classList.add('panel-open'); }
 function _closeModePanel() { modePanelEl.classList.remove('open'); modePanelBtn.classList.remove('panel-open'); }
@@ -2416,32 +2440,58 @@ Object.defineProperties(window, {
   showScreenRipples:  { get(){ return FX.screenRipples; }, set(v){ FX.screenRipples = v; } },
 });
 const panelsContainerEl = document.getElementById('panels-container');
-(function buildVisToggles() {
-  const btnStyle = 'background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.5);font-family:monospace;font-size:11px;padding:5px 12px;cursor:pointer;letter-spacing:2px;transition:background .15s,color .15s,border-color .15s;';
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed;bottom:108px;right:16px;display:flex;gap:6px;z-index:10;';
-  const mkBtn = (label, onClick) => {
-    const b = document.createElement('button');
-    b.textContent = label; b.style.cssText = btnStyle;
-    b.addEventListener('mouseenter', () => { b.style.background='rgba(255,255,255,.14)'; b.style.color='#fff'; });
-    b.addEventListener('mouseleave', () => { b.style.background=b._active?'rgba(255,255,255,.14)':'rgba(255,255,255,.07)'; b.style.color=b._active?'rgba(255,255,255,.85)':'rgba(255,255,255,.5)'; });
-    b.addEventListener('click', () => onClick(b));
-    b._active = true; return b;
-  };
-  const keysBtn = mkBtn('KEYS', b => {
-    showKeyboard = !showKeyboard; b._active = showKeyboard;
-    b.style.borderColor = showKeyboard ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.08)';
-    b.style.color = showKeyboard ? 'rgba(255,255,255,.5)' : 'rgba(255,255,255,.22)';
+// KEYS / MODS toggles (buttons are static HTML in #game-controls)
+(function initVisToggles() {
+  const keysBtn = document.getElementById('keys-btn');
+  const modsBtn = document.getElementById('mods-btn');
+  keysBtn?.addEventListener('click', () => {
+    showKeyboard = !showKeyboard;
+    keysBtn.classList.toggle('active', showKeyboard);
   });
-  const modsBtn = mkBtn('MODS', b => {
-    showModules = !showModules; b._active = showModules;
+  modsBtn?.addEventListener('click', () => {
+    showModules = !showModules;
     panelsContainerEl.style.visibility = showModules ? '' : 'hidden';
-    b.style.borderColor = showModules ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.08)';
-    b.style.color = showModules ? 'rgba(255,255,255,.5)' : 'rgba(255,255,255,.22)';
+    modsBtn.classList.toggle('active', showModules);
   });
-  wrap.append(keysBtn, modsBtn);
-  document.body.appendChild(wrap);
 })();
+
+// Controls bar position
+function setControlsPos(pos) {
+  controlsBarPos = pos ?? 'below';
+  const gc = document.getElementById('game-controls');
+  const mp = document.getElementById('mode-panel');
+  const kH = (Math.min(canvas.width - 60, 720) / 14) * 4;
+  const barH = gc ? gc.getBoundingClientRect().height || 36 : 36;
+  if (controlsBarPos === 'below') {
+    kbRiseOffset = Math.round(barH + 10);
+    if (gc) { gc.style.top = 'auto'; gc.style.bottom = '12px'; }
+    if (mp) { mp.style.top = 'auto'; mp.style.bottom = '52px'; }
+  } else if (controlsBarPos === 'above') {
+    kbRiseOffset = 0;
+    const fromBot = Math.round(kH + 18);
+    if (gc) { gc.style.top = 'auto'; gc.style.bottom = `${fromBot}px`; }
+    if (mp) { mp.style.top = 'auto'; mp.style.bottom = `${fromBot + barH + 8}px`; }
+  } else { // 'top'
+    kbRiseOffset = 0;
+    if (gc) { gc.style.bottom = 'auto'; gc.style.top = '12px'; }
+    if (mp) { mp.style.bottom = 'auto'; mp.style.top = '52px'; }
+  }
+  document.querySelectorAll('.ctrl-pos-opt').forEach(b => b.classList.toggle('active', b.dataset.pos === controlsBarPos));
+}
+
+document.querySelectorAll('.ctrl-pos-opt').forEach(btn => {
+  btn.addEventListener('click', () => { setControlsPos(btn.dataset.pos); saveState(); });
+});
+
+// Mode panel tab switching
+document.querySelectorAll('.mode-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.mode-tab-pane').forEach(p => p.classList.add('mode-tab-pane-hidden'));
+    tab.classList.add('active');
+    document.querySelector(`.mode-tab-pane[data-pane="${tab.dataset.tab}"]`)?.classList.remove('mode-tab-pane-hidden');
+  });
+});
 
 // Score HUD always visible
 hudEl.style.display = 'block';
@@ -2451,6 +2501,8 @@ registry.addModule('audio-out'); // → 'audio-out-0'
 
 try { (JSON.parse(localStorage.getItem(BTNS_KEY)||'[]')).forEach(cmd=>{_customBtnCmds.push(cmd);_spawnBtnEl(cmd);}); } catch(e) {}
 const restored=loadState();
+_syncModeToggles();
+setControlsPos(controlsBarPos);
 if (!restored||registry.getOscModules().length===0) {
   const oscId=registry.addModule('osc-sine');
   registry.addPatch(oscId,'audio','audio-out-0','in');

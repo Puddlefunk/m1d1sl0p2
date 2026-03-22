@@ -87,23 +87,27 @@ body.mp-connected #chat-panel.chat-open {
 }
 /* Visual group separators */
 #game-controls .key-selector,
+#game-controls #keys-btn,
 #game-controls #mode-panel-btn,
 #game-controls #midi-learn-btn { margin-left: 10px; }
-#mode-btn, #shop-btn, #mode-panel-btn {
+#mode-btn, #shop-btn, #mode-panel-btn, #keys-btn, #mods-btn {
   background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
   color: rgba(255,255,255,.5); font-family: monospace; font-size: 11px;
   padding: 5px 14px; cursor: pointer; letter-spacing: 2px;
   transition: background .15s, color .15s, border-color .15s, opacity .4s;
 }
-#mode-btn:hover, #shop-btn:hover, #mode-panel-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
+#mode-btn:hover, #shop-btn:hover, #mode-panel-btn:hover,
+#keys-btn:hover, #mods-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
 #mode-btn.active  { border-color: rgba(255,255,255,.5); color: rgba(255,255,255,.85); }
 #shop-btn.active  { border-color: rgba(255,255,255,.5); color: rgba(255,255,255,.85); }
+#keys-btn.active, #mods-btn.active { border-color: rgba(255,255,255,.5); color: rgba(255,255,255,.85); }
+#keys-btn:not(.active), #mods-btn:not(.active) { border-color: rgba(255,255,255,.08); color: rgba(255,255,255,.22); }
 #shop-btn.locked  { opacity: 0.22; pointer-events: none; }
 #mode-panel-btn.panel-open { border-color: rgba(255,255,255,.38); color: rgba(255,255,255,.75); }
 
 /* ── Mode panel ── */
 #mode-panel {
-  display: none; position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%);
+  display: none; position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%); /* bottom overridden by setControlsPos */
   width: 280px; z-index: 200;
   border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
   background: linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.02) 30%,rgba(0,0,0,0) 60%), rgba(12,12,16,.92);
@@ -121,6 +125,20 @@ body.mp-connected #chat-panel.chat-open {
 .mode-panel-title { flex: 1; font-size: 9px; letter-spacing: 4px; color: rgba(255,255,255,.32); text-transform: uppercase; }
 #mode-panel-close { background: none; border: none; padding: 0 0 0 6px; color: rgba(255,255,255,.28); cursor: pointer; font-size: 12px; line-height: 1; }
 #mode-panel-close:hover { color: rgba(255,255,255,.7); }
+
+/* ── Mode panel tabs ── */
+.mode-tabs {
+  display: flex; border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.mode-tab {
+  flex: 1; background: none; border: none; border-bottom: 2px solid transparent;
+  color: rgba(255,255,255,.28); font-family: monospace; font-size: 9px;
+  letter-spacing: 3px; padding: 9px 0 7px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.mode-tab:hover { color: rgba(255,255,255,.55); }
+.mode-tab.active { color: rgba(255,255,255,.75); border-bottom-color: rgba(255,255,255,.3); }
+.mode-tab-pane-hidden { display: none; }
 
 .mode-section { padding: 10px 12px 4px; border-bottom: 1px solid rgba(255,255,255,.05); }
 .mode-section:last-child { border-bottom: none; padding-bottom: 10px; }
@@ -151,6 +169,36 @@ body.mp-connected #chat-panel.chat-open {
   transition: background .15s, color .15s; border-radius: 3px; margin-bottom: 4px;
 }
 #mode-share-btn:hover { background: rgba(255,255,255,.12); color: rgba(255,255,255,.85); }
+
+/* ── Controls position picker ── */
+.ctrl-pos-group { display: flex; gap: 4px; }
+.ctrl-pos-opt {
+  flex: 1; background: none; border: 1px solid rgba(255,255,255,.1); border-radius: 3px;
+  color: rgba(255,255,255,.3); font-family: monospace; font-size: 8px;
+  letter-spacing: 1.5px; padding: 6px 0; cursor: pointer; text-align: center;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.ctrl-pos-opt:hover { background: rgba(255,255,255,.06); color: rgba(255,255,255,.6); }
+.ctrl-pos-opt.active { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.22); color: rgba(255,255,255,.85); }
+
+/* ── Mode panel option toggles ── */
+.mode-toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.mode-toggle-label { font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.45); }
+.mode-toggle {
+  width: 28px; height: 14px; border-radius: 7px; border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.08); cursor: pointer; position: relative;
+  transition: background .18s, border-color .18s; flex-shrink: 0;
+}
+.mode-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255,255,255,.35); transition: transform .18s, background .18s;
+}
+.mode-toggle.on { background: rgba(120,255,160,.18); border-color: rgba(120,255,160,.4); }
+.mode-toggle.on::after { transform: translateX(14px); background: rgba(120,255,160,.9); }
 
 .mode-section-newgame { padding-top: 8px; }
 #mode-new-game-btn {

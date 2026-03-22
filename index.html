@@ -38,7 +38,9 @@
       <option value="lydian">LYDIAN</option>
     </select>
   </div>
-  <button id="mode-panel-btn">MODE</button>
+  <button id="keys-btn" class="active">KEYS</button>
+  <button id="mods-btn" class="active">MODS</button>
+  <button id="mode-panel-btn">MENU</button>
   <button id="shop-btn" class="locked" title="Unlocks at Level 2">SHOP</button>
   <button id="midi-learn-btn" title="MIDI Learn: click, then click a knob, then turn an encoder">MIDI LEARN</button>
 </div>
@@ -46,47 +48,71 @@
 <!-- Mode panel -->
 <div id="mode-panel">
   <div class="mode-panel-header">
-    <span class="mode-panel-title">GAME MODE</span>
+    <span class="mode-panel-title">MENU</span>
     <button id="mode-panel-close">✕</button>
   </div>
 
-  <div class="mode-section">
-    <div class="mode-section-label">SOLO</div>
-    <button class="mode-opt active" data-mode="play">
-      <span class="mode-opt-name">PLAY</span>
-      <span class="mode-opt-desc">chord challenges</span>
-    </button>
-    <button class="mode-opt mode-opt-locked" data-mode="ear" id="mode-opt-ear">
-      <span class="mode-opt-name">EAR</span>
-      <span class="mode-opt-desc">listen and identify</span>
-      <span class="mode-opt-tag">unlocks lv 10</span>
-    </button>
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-tab="game">GAME</button>
+    <button class="mode-tab" data-tab="options">OPTIONS</button>
   </div>
 
-  <div class="mode-section">
-    <div class="mode-section-label">VERSUS</div>
-    <button class="mode-opt" data-mode="competitive">
-      <span class="mode-opt-name">COMPETITIVE</span>
-      <span class="mode-opt-desc">first to solve — head to head</span>
-    </button>
-    <button class="mode-opt mode-opt-soon" data-mode="tennis">
-      <span class="mode-opt-name">TENNIS</span>
-      <span class="mode-opt-desc">serve and return</span>
-      <span class="mode-opt-tag">soon</span>
-    </button>
-  </div>
-
-  <div class="mode-section">
-    <div class="mode-section-label">PARTNER</div>
-    <div class="mode-partner-row">
-      <span id="mode-mp-dot" class="mp-dot mp-solo"></span>
-      <span id="mode-mp-status">no partner</span>
+  <div class="mode-tab-pane" data-pane="game">
+    <div class="mode-section">
+      <div class="mode-section-label">SOLO</div>
+      <button class="mode-opt active" data-mode="play">
+        <span class="mode-opt-name">PLAY</span>
+        <span class="mode-opt-desc">chord challenges</span>
+      </button>
+      <button class="mode-opt mode-opt-locked" data-mode="ear" id="mode-opt-ear">
+        <span class="mode-opt-name">EAR</span>
+        <span class="mode-opt-desc">listen and identify</span>
+        <span class="mode-opt-tag">unlocks lv 10</span>
+      </button>
     </div>
-    <button id="mode-share-btn">COPY INVITE LINK</button>
+
+    <div class="mode-section">
+      <div class="mode-section-label">VERSUS</div>
+      <button class="mode-opt" data-mode="competitive">
+        <span class="mode-opt-name">COMPETITIVE</span>
+        <span class="mode-opt-desc">first to solve — head to head</span>
+      </button>
+      <button class="mode-opt mode-opt-soon" data-mode="tennis">
+        <span class="mode-opt-name">TENNIS</span>
+        <span class="mode-opt-desc">serve and return</span>
+        <span class="mode-opt-tag">soon</span>
+      </button>
+    </div>
+
+    <div class="mode-section">
+      <div class="mode-section-label">PARTNER</div>
+      <div class="mode-partner-row">
+        <span id="mode-mp-dot" class="mp-dot mp-solo"></span>
+        <span id="mode-mp-status">no partner</span>
+      </div>
+      <button id="mode-share-btn">COPY INVITE LINK</button>
+    </div>
+
+    <div class="mode-section mode-section-newgame">
+      <button id="mode-new-game-btn">NEW GAME</button>
+    </div>
   </div>
 
-  <div class="mode-section mode-section-newgame">
-    <button id="mode-new-game-btn">NEW GAME</button>
+  <div class="mode-tab-pane mode-tab-pane-hidden" data-pane="options">
+    <div class="mode-section">
+      <div class="mode-section-label">CONTROLS POSITION</div>
+      <div class="ctrl-pos-group">
+        <button class="ctrl-pos-opt active" data-pos="below">BELOW KEYS</button>
+        <button class="ctrl-pos-opt" data-pos="above">ABOVE KEYS</button>
+        <button class="ctrl-pos-opt" data-pos="top">TOP</button>
+      </div>
+    </div>
+    <div class="mode-section" style="border-bottom:none;padding-bottom:10px;">
+      <div class="mode-toggle-row">
+        <span class="mode-toggle-label">QWERTY KEY GUIDE</span>
+        <button class="mode-toggle on" id="opt-keyguides" data-fx="keyGuides"></button>
+      </div>
+    </div>
   </div>
 </div>
 
