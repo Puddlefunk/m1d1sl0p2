@@ -88,9 +88,10 @@ canvas { display: block; }
 #game-controls #midi-learn-btn { margin-left: 10px; }
 #bpm-display {
   font-family: monospace; font-size: 11px; letter-spacing: 1px;
-  color: rgba(255,255,255,.35); min-width: 2.5ch; text-align: right;
-  user-select: none;
+  color: rgba(255,255,255,.5); min-width: 2.5ch; text-align: right;
+  user-select: none; transition: color .2s;
 }
+#bpm-display.ext-active { color: rgba(255,255,255,.18); }
 #bpm-ext-btn {
   background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
   color: rgba(255,255,255,.25); font-family: monospace; font-size: 11px;

@@ -152,7 +152,10 @@ const bpmEl           = document.getElementById('bpm');
 const bpmDisplayEl    = document.getElementById('bpm-display');
 function _setBpmText(txt) {
   bpmEl.textContent = txt;
-  if (bpmDisplayEl) bpmDisplayEl.textContent = txt.replace(' bpm', '');
+  if (bpmDisplayEl) {
+    const num = txt.replace(' bpm', '').trim();
+    bpmDisplayEl.textContent = num || String(internalBpm || 120);
+  }
 }
 const modeBtnEl       = document.getElementById('mode-btn');
 const earBtnEl        = null; // removed — EAR is now a mode option in the mode panel
@@ -2414,6 +2417,7 @@ function _syncModeToggles() {
   });
   document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
   document.getElementById('bpm-ext-btn')?.classList.toggle('active', useMidiClock);
+  bpmDisplayEl?.classList.toggle('ext-active', useMidiClock);
 }
 
 document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
@@ -2743,6 +2747,7 @@ registry.addModule('audio-out'); // → 'audio-out-0'
 
 try { (JSON.parse(localStorage.getItem(BTNS_KEY)||'[]')).forEach(cmd=>{_customBtnCmds.push(cmd);_spawnBtnEl(cmd);}); } catch(e) {}
 const restored=loadState();
+if (bpmDisplayEl) bpmDisplayEl.textContent = String(internalBpm || 120);
 _syncModeToggles();
 setControlsPos(controlsBarPos);
 if (!restored||registry.getOscModules().length===0) {
