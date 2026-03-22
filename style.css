@@ -82,13 +82,13 @@ body.mp-connected #chat-panel.chat-open {
 
 
 #game-controls {
-  position: fixed; bottom: 20px; right: 16px;
-  display: flex; gap: 8px; align-items: center; z-index: 10;
-  transition: bottom 0.28s ease;
+  position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 6px; align-items: center; z-index: 10;
 }
-body.keyboard-visible #game-controls {
-  bottom: calc(var(--kb-h, 206px) + 22px);
-}
+/* Visual group separators */
+#game-controls .key-selector,
+#game-controls #mode-panel-btn,
+#game-controls #midi-learn-btn { margin-left: 10px; }
 #mode-btn, #shop-btn, #mode-panel-btn {
   background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.18);
   color: rgba(255,255,255,.5); font-family: monospace; font-size: 11px;
@@ -103,8 +103,8 @@ body.keyboard-visible #game-controls {
 
 /* ── Mode panel ── */
 #mode-panel {
-  display: none; position: fixed; bottom: 20px; right: 16px;
-  width: 280px; z-index: 200; transition: bottom 0.28s ease;
+  display: none; position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%);
+  width: 280px; z-index: 200;
   border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
   background: linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.02) 30%,rgba(0,0,0,0) 60%), rgba(12,12,16,.92);
   backdrop-filter: blur(22px) brightness(.72);
@@ -113,7 +113,6 @@ body.keyboard-visible #game-controls {
   font-family: monospace; font-size: 11px;
 }
 #mode-panel.open { display: block; }
-body.keyboard-visible #mode-panel { bottom: calc(var(--kb-h, 206px) + 62px); }
 
 .mode-panel-header {
   display: flex; align-items: center; padding: 13px 12px 11px;

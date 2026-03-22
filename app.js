@@ -137,11 +137,8 @@ const patchCtx    = patchCanvas.getContext('2d');
 function resizeCanvas() {
   canvas.width = patchCanvas.width = window.innerWidth;
   canvas.height = patchCanvas.height = window.innerHeight;
-  const kW = Math.min(canvas.width - 60, 720) / 14;
-  document.documentElement.style.setProperty('--kb-h', Math.round(kW * 4) + 'px');
 }
 resizeCanvas();
-document.body.classList.add('keyboard-visible'); // default: keyboard on
 window.addEventListener('resize', resizeCanvas);
 
 const statusEl        = document.getElementById('status');
@@ -2435,7 +2432,6 @@ const panelsContainerEl = document.getElementById('panels-container');
     showKeyboard = !showKeyboard; b._active = showKeyboard;
     b.style.borderColor = showKeyboard ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.08)';
     b.style.color = showKeyboard ? 'rgba(255,255,255,.5)' : 'rgba(255,255,255,.22)';
-    document.body.classList.toggle('keyboard-visible', showKeyboard);
   });
   const modsBtn = mkBtn('MODS', b => {
     showModules = !showModules; b._active = showModules;
