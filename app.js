@@ -60,6 +60,8 @@ let streakLevels = 0;  // earned streak levels (0–4); reaching 5 triggers leve
 let keyboardAlpha = 1;             // fades 0↔1 on keyboard show/hide
 let earTraining  = false;          // ear training mode active
 let selectedMode = 'coop';         // 'play' | 'ear' | 'coop' | 'competitive' | 'tennis'
+let tennisServer = 'host';         // tennis: who is currently serving ('host'|'client')
+let tennisPhase  = 'serve';        // tennis: 'serve' | 'return'
 let remoteScore  = 0;              // opponent score in competitive/tennis modes
 let roundsPlayed = 0;              // competitive: shared round counter for level advance
 let lockedOut      = false;        // competitive: host locked out this round
@@ -152,7 +154,7 @@ const bpmEl           = document.getElementById('bpm');
 const bpmDisplayEl    = document.getElementById('bpm-display');
 function _setBpmText(txt) {
   bpmEl.textContent = txt;
-  if (bpmDisplayEl) {
+  if (bpmDisplayEl && !bpmDisplayEl.querySelector('input')) {
     const num = txt.replace(' bpm', '').trim();
     bpmDisplayEl.textContent = num || String(internalBpm || 120);
   }
@@ -529,6 +531,7 @@ class GameEngine {
       remoteScore = 0; roundsPlayed = 0;
       _updateRemoteScore();
     }
+    if (selectedMode === 'tennis') { tennisServer = 'host'; tennisPhase = 'serve'; }
 
     modeBtnEl.textContent = 'PAUSE'; modeBtnEl.classList.add('active');
     hudEl.style.display = 'block';
@@ -575,7 +578,16 @@ class GameEngine {
     phaseStart       = performance.now();
 
     challengeEl.style.display = 'block';
-    if (earTraining) {
+    if (selectedMode === 'tennis') {
+      tennisPhase = 'serve';
+      challengeNameEl.textContent = chord.display;
+      challengeNameEl.style.color = `hsl(${currentChallenge.h},85%,72%)`;
+      challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
+      challengeNameEl.style.cursor = '';
+      hintLabelEl.textContent = 'listen...';
+      hintNotes = [];
+      setTimeout(() => playEarTrainingChord(chord.notes), 100);
+    } else if (earTraining) {
       challengeNameEl.textContent = '?';
       challengeNameEl.style.color = 'rgba(255,255,255,0.35)';
       challengeNameEl.style.textShadow = 'none';
@@ -594,7 +606,7 @@ class GameEngine {
     challengeNameEl.style.opacity = '1';
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
-    multiplayer.send('CHALLENGE', { display: chord.display, notes: chord.notes, earTraining });
+    multiplayer.send('CHALLENGE', { display: chord.display, notes: chord.notes, earTraining, tennisServer });
   }
 
   _buildDeck() {
@@ -617,6 +629,33 @@ class GameEngine {
   checkSuccess() {
     if (gameMode !== 'play' || gamePhase !== 'play' || !currentChallenge) return;
     const required = currentChallenge.notes.map(normPc);
+
+    if (selectedMode === 'tennis' && multiplayer.isConnected) {
+      const localPCs   = new Set([...activeNotes.keys()].map(m => normPc(midiToPitchClass(m))));
+      const remotePCs  = new Set([...remoteNotes.keys()].map(m => normPc(midiToPitchClass(m))));
+      const serverPCs  = tennisServer === 'host' ? localPCs : remotePCs;
+      const returnerPCs = tennisServer === 'host' ? remotePCs : localPCs;
+      if (tennisPhase === 'serve') {
+        if (required.every(pc => serverPCs.has(pc))) {
+          phrasePeakNotes = 0; // prevent note-release triggering fail
+          tennisPhase = 'return';
+          phaseStart = performance.now(); playPhaseStart = phaseStart;
+          hintLabelEl.textContent = tennisServer === 'host' ? 'sent — waiting...' : 'return ↑';
+          multiplayer.send('TENNIS_SERVE', {});
+        } else if (!_wrongPenaltyGiven && serverPCs.size >= required.length) {
+          _wrongPenaltyGiven = true;
+          this.triggerFail('wrong');
+        }
+      } else {
+        if (required.every(pc => returnerPCs.has(pc))) {
+          this.triggerSuccess(tennisServer === 'host' ? 'client' : 'host');
+        } else if (!_wrongPenaltyGiven && returnerPCs.size >= required.length) {
+          _wrongPenaltyGiven = true;
+          this.triggerFail('wrong');
+        }
+      }
+      return;
+    }
 
     if (_isCompetitive() && multiplayer.isConnected) {
       const localPCs  = new Set([...activeNotes.keys()].map(m => normPc(midiToPitchClass(m))));
@@ -678,7 +717,20 @@ class GameEngine {
     else           { chordBurstStrength = Math.max(0.08, chordBurstStrength * 0.55); }
     playSuccessSound(currentChallenge.notes);
 
-    if (_isCompetitive() && multiplayer.isConnected) {
+    if (selectedMode === 'tennis' && multiplayer.isConnected) {
+      const returner = tennisServer === 'host' ? 'client' : 'host';
+      this._addScoreCompetitive(returner);
+      tennisServer = returner; // returner becomes server next round
+      const hostWon = returner === 'host';
+      spawnChordBurst(currentChallenge.h, _rootPos.x, _rootPos.y, chordBurstStrength, true);
+      if (_newChord) spawnSynthHit(currentChallenge.h);
+      feedbackEl.textContent      = hostWon ? '✓ returned' : '✗ returned';
+      feedbackEl.style.color      = hostWon ? `hsl(${currentChallenge.h},85%,75%)` : '#ff6060';
+      feedbackEl.style.textShadow = hostWon ? `0 0 40px hsl(${currentChallenge.h},85%,60%)` : '0 0 20px #ff2020';
+      feedbackAlpha = 1;
+      multiplayer.send('SUCCESS', { display: currentChallenge.display, h: currentChallenge.h, winner: returner, tennisServer });
+      setTimeout(() => { if (gameMode === 'play') this.startNextChallenge(); }, 1500);
+    } else if (_isCompetitive() && multiplayer.isConnected) {
       this._addScoreCompetitive(winner);
       const iWon = winner === 'host';
       if (iWon) {
@@ -719,6 +771,29 @@ class GameEngine {
     phaseStart = performance.now();
     timerBarEl.style.display = 'none';
     timerSecsEl.style.display = 'none';
+
+    if (selectedMode === 'tennis' && multiplayer.isConnected) {
+      lockedOut = false; remoteLockedOut = false;
+      // serve fault → returner scores, serve switches; return fault → server scores, serve stays
+      const serveFaulted = tennisPhase === 'serve';
+      const scorer = serveFaulted
+        ? (tennisServer === 'host' ? 'client' : 'host')
+        : tennisServer;
+      if (serveFaulted) tennisServer = scorer; // serve transfers to the scorer
+      this._addScoreCompetitive(scorer);
+      playFailSound();
+      const hostWon = scorer === 'host';
+      feedbackEl.textContent      = hostWon
+        ? (serveFaulted ? '✓ their fault' : '✓ return missed')
+        : (serveFaulted ? '✗ your fault'  : '✗ return missed');
+      feedbackEl.style.color      = hostWon ? `hsl(${currentChallenge.h},85%,75%)` : '#ff6060';
+      feedbackEl.style.textShadow = hostWon ? `0 0 40px hsl(${currentChallenge.h},85%,60%)` : '0 0 20px #ff2020';
+      feedbackAlpha = 1;
+      challengeNameEl.style.opacity = '0.35';
+      multiplayer.send('FAIL', { display: currentChallenge?.display ?? '', tennisServer, scorer });
+      setTimeout(() => { if (gameMode === 'play' && gamePhase === 'fail') this.startNextChallenge(); }, 1500);
+      return;
+    }
 
     if (_isCompetitive() && multiplayer.isConnected) {
       // Competitive timeout = draw, no score change, clear lockouts
@@ -883,7 +958,7 @@ class GameEngine {
     const elapsed = performance.now() - phaseStart;
 
     if (gamePhase === 'hint') {
-      const hintMs = earTraining ? Math.max(currentLevel().hintMs, 2500) : currentLevel().hintMs;
+      const hintMs = (earTraining || selectedMode === 'tennis') ? Math.max(currentLevel().hintMs, 2500) : currentLevel().hintMs;
       const t = Math.min(elapsed/hintMs, 1);
       const a = t < 0.25 ? t/0.25 : t < 0.65 ? 1 : 1-(t-0.65)/0.35;
       hintNotes.forEach(h => h.alpha = Math.max(0, a));
@@ -893,7 +968,11 @@ class GameEngine {
         playPhaseStart = phaseStart;
         hintNotes      = [];
         challengeNameEl.style.opacity = '0.5';
-        hintLabelEl.textContent = '';
+        if (selectedMode === 'tennis') {
+          hintLabelEl.textContent = _tennisIAmServer() ? 'serve ↑' : 'listen...';
+        } else {
+          hintLabelEl.textContent = '';
+        }
         timerBarEl.style.display  = 'block';
         timerSecsEl.style.display = 'block';
       }
@@ -2089,7 +2168,7 @@ multiplayer
       multiplayer._registryWired = true;
       const helloPayload = {
         game: {
-          score, levelIdx, streakCount, streakLevels, gameMode, earTraining, selectedMode, roundsPlayed, internalBpm, internalBpmActive,
+          score, levelIdx, streakCount, streakLevels, gameMode, earTraining, selectedMode, roundsPlayed, internalBpm, internalBpmActive, tennisServer, tennisPhase,
           challenge: currentChallenge
             ? { display: currentChallenge.display, notes: currentChallenge.notes }
             : null,
@@ -2156,6 +2235,7 @@ multiplayer
       document.body.classList.remove('mp-client');
       score = 0; remoteScore = game.score;
       roundsPlayed = game.roundsPlayed ?? 0;
+      if (selectedMode === 'tennis') { tennisServer = game.tennisServer ?? 'host'; tennisPhase = game.tennisPhase ?? 'serve'; }
       scoreValEl.textContent = '0';
       _updateRemoteScore();
       if (levelIdx >= 1) shopBtnEl.classList.remove('locked');
@@ -2167,10 +2247,16 @@ multiplayer
         challengeNameEl.style.opacity = '1';
         challengeNameEl.style.color  = `hsl(${currentChallenge.h},85%,72%)`;
         challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
-        hintLabelEl.textContent = '';
-        hintNotes = game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+        if (selectedMode === 'tennis') {
+          hintLabelEl.textContent = 'listen...';
+          hintNotes = [];
+          setTimeout(() => playEarTrainingChord(game.challenge.notes), 200);
+        } else {
+          hintLabelEl.textContent = '';
+          hintNotes = game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+        }
       }
-      consolePrint('competitive — your synth is your own. fight!', 5000);
+      consolePrint(selectedMode === 'tennis' ? 'tennis — serve and return!' : 'competitive — your synth is your own. fight!', 5000);
     } else {
       // Co-op: shared synth — both players can edit
       multiplayer.replaySnapshot(registry, snap); // fires events synchronously; listeners added after so no echo
@@ -2201,34 +2287,64 @@ multiplayer
     }
   })
   // ── Client mirrors game events ──
-  .on('CHALLENGE', ({ display, notes, earTraining: et }) => {
+  .on('CHALLENGE', ({ display, notes, earTraining: et, tennisServer: ts }) => {
     if (!multiplayer.isClient) return;
     currentChallenge = { display, notes, h: rootHue(display) };
-    gamePhase   = 'play';
-    earTraining = et;
     challengeEl.style.display    = 'block';
     challengeNameEl.style.opacity = '1';
-    if (et) {
-      challengeNameEl.textContent      = '?';
-      challengeNameEl.style.color      = 'rgba(255,255,255,0.35)';
-      challengeNameEl.style.textShadow = 'none';
-      hintLabelEl.textContent          = 'listen for the chord';
-      hintNotes = [];
-    } else {
+    timerBarEl.style.display  = 'none';
+    timerSecsEl.style.display = 'none';
+    if (selectedMode === 'tennis') {
+      if (ts !== undefined) tennisServer = ts;
+      tennisPhase = 'serve';
+      gamePhase   = 'hint';
+      phaseStart  = performance.now();
       challengeNameEl.textContent      = display;
       challengeNameEl.style.color      = `hsl(${currentChallenge.h},85%,72%)`;
       challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
-      hintLabelEl.textContent          = '';
-      hintNotes = notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+      hintLabelEl.textContent          = 'listen...';
+      hintNotes = [];
+      setTimeout(() => playEarTrainingChord(notes), 100);
+    } else {
+      gamePhase   = 'play';
+      earTraining = et;
+      if (et) {
+        challengeNameEl.textContent      = '?';
+        challengeNameEl.style.color      = 'rgba(255,255,255,0.35)';
+        challengeNameEl.style.textShadow = 'none';
+        hintLabelEl.textContent          = 'listen for the chord';
+        hintNotes = [];
+      } else {
+        challengeNameEl.textContent      = display;
+        challengeNameEl.style.color      = `hsl(${currentChallenge.h},85%,72%)`;
+        challengeNameEl.style.textShadow = `0 0 28px hsl(${currentChallenge.h},85%,62%)`;
+        hintLabelEl.textContent          = '';
+        hintNotes = notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
+      }
     }
-    timerBarEl.style.display = 'none';
-    timerSecsEl.style.display = 'none';
   })
-  .on('SUCCESS', ({ display, h, winner }) => {
+  .on('TENNIS_SERVE', ({}) => {
+    if (!multiplayer.isClient) return;
+    tennisPhase = 'return';
+    phaseStart = performance.now(); playPhaseStart = phaseStart;
+    hintLabelEl.textContent = (tennisServer === 'client') ? 'sent — waiting...' : 'return ↑';
+    timerBarEl.style.display  = 'block';
+    timerSecsEl.style.display = 'block';
+  })
+  .on('SUCCESS', ({ display, h, winner, tennisServer: ts }) => {
     if (!multiplayer.isClient) return;
     gamePhase = 'success';
     const rootPos = notePos(pcToMidi(normPc(currentChallenge?.notes[0] ?? 'C')));
-    if (_isCompetitive()) {
+    if (selectedMode === 'tennis') {
+      if (ts !== undefined) tennisServer = ts;
+      const iWon = winner === 'client';
+      feedbackEl.textContent      = iWon ? '✓ returned' : '✗ returned';
+      feedbackEl.style.color      = iWon ? `hsl(${h},85%,75%)` : '#ff6060';
+      feedbackEl.style.textShadow = iWon ? `0 0 40px hsl(${h},85%,60%)` : '0 0 20px #ff2020';
+      feedbackAlpha = 1;
+      if (iWon) { spawnChordBurst(h, rootPos.x, rootPos.y, 1, true); spawnSynthHit(h); }
+      lockedOut = false;
+    } else if (_isCompetitive()) {
       const iWon = winner === 'client'; // client = Bob, so winner==='client' means Bob won
       feedbackEl.textContent      = iWon ? '✓ you got it' : '✗ they got it';
       feedbackEl.style.color      = iWon ? `hsl(${h},85%,75%)` : '#ff6060';
@@ -2245,11 +2361,17 @@ multiplayer
       spawnSynthHit(h);
     }
   })
-  .on('FAIL', ({ display, draw }) => {
+  .on('FAIL', ({ display, draw, tennisServer: ts, scorer }) => {
     if (!multiplayer.isClient) return;
     gamePhase = 'fail';
     lockedOut = false;
-    if (draw) {
+    if (selectedMode === 'tennis' && ts !== undefined) {
+      tennisServer = ts;
+      const iWon = scorer === 'client';
+      feedbackEl.textContent      = iWon ? '✓ point' : '✗ point';
+      feedbackEl.style.color      = iWon ? `hsl(${currentChallenge?.h ?? 120},85%,75%)` : '#ff4040';
+      feedbackEl.style.textShadow = iWon ? `0 0 40px hsl(${currentChallenge?.h ?? 120},85%,60%)` : '0 0 30px #ff2020';
+    } else if (draw) {
       feedbackEl.textContent      = 'draw';
       feedbackEl.style.color      = 'rgba(255,255,255,0.4)';
       feedbackEl.style.textShadow = 'none';
@@ -2431,7 +2553,11 @@ document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
 
 function _toggleMidiClock() {
   useMidiClock = !useMidiClock;
-  if (!useMidiClock) { bpm = 0; clockTimes = []; _setBpmText(internalBpmActive ? `${internalBpm} bpm` : ''); }
+  if (!useMidiClock) {
+    if (bpm > 0) { internalBpm = bpm; internalBpmActive = true; }
+    bpm = 0; clockTimes = [];
+    _setBpmText(internalBpmActive ? `${internalBpm} bpm` : '');
+  }
   _syncModeToggles();
   saveState();
 }
@@ -2494,6 +2620,7 @@ function _showConfirm(cb, { msg = 'are you sure?', sub = '', yes = 'YES', no = '
 }
 
 function _isCompetitive(mode) { return (mode ?? selectedMode) === 'competitive' || (mode ?? selectedMode) === 'tennis'; }
+function _tennisIAmServer() { return multiplayer.isClient ? tennisServer === 'client' : tennisServer === 'host'; }
 
 function _disconnect() {
   multiplayer.conn?.close();
@@ -2608,6 +2735,36 @@ bpmEl.addEventListener('click', () => {
   saveState();
   if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
 });
+
+// Click #bpm-display to type a BPM value directly
+if (bpmDisplayEl) {
+  bpmDisplayEl.style.cursor = 'text';
+  bpmDisplayEl.title = 'click to set BPM';
+  bpmDisplayEl.addEventListener('click', () => {
+    if (multiplayer.isClient) return;
+    if (bpmDisplayEl.querySelector('input')) return;
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.min = 40; inp.max = 240;
+    inp.value = effectiveBpm();
+    inp.style.cssText = 'width:3.5ch;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.4);color:inherit;font:inherit;outline:none;padding:0;text-align:right;';
+    bpmDisplayEl.textContent = '';
+    bpmDisplayEl.appendChild(inp);
+    inp.focus(); inp.select();
+    function commit() {
+      const v = Math.max(40, Math.min(240, parseInt(inp.value, 10) || internalBpm));
+      internalBpm = v; internalBpmActive = true;
+      _setBpmText(`${internalBpm} bpm`);
+      saveState();
+      if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
+    }
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { commit(); inp.blur(); }
+      if (e.key === 'Escape') { _setBpmText(internalBpmActive ? `${internalBpm} bpm` : ''); bpmDisplayEl.textContent = String(internalBpm); }
+      e.stopPropagation();
+    });
+    inp.addEventListener('blur', () => { commit(); });
+  });
+}
 
 if (!navigator.requestMIDIAccess) {
   statusEl.textContent='Web MIDI not supported — use Chrome';
