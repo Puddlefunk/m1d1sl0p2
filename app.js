@@ -1817,7 +1817,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&midiLearnMode)setL
 
 class PianoLayout {
   get id()              { return 'piano'; }
-  hitTest(x, y)         { return getKeyAtPos(x, y); }
+  hitTest(x, y)         { return showKeyboard ? getKeyAtPos(x, y) : null; }
   hintsFor(notes)       { return notes.map(pc => pcToMidi(normPc(pc))); }
   draw()                {} // drawn by animate loop
 }
