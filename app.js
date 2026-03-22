@@ -1978,6 +1978,7 @@ const noteInputSystem = new NoteInputSystem();
 // MULTIPLAYER
 // ─────────────────────────────────────────────────────────────
 const multiplayer = new MultiplayerSystem();
+let _mpRemote = false; // true while applying an incoming remote change — suppresses re-broadcast
 
 multiplayer
   .on('state-change', state => {
@@ -2010,10 +2011,10 @@ multiplayer
       if (selectedMode !== 'competitive') {
         // Co-op only: mirror registry
         helloPayload.registry = multiplayer.snapshotRegistry(registry);
-        registry.addEventListener('module-added',   e => multiplayer.send('MODULE_ADD', e.detail));
-        registry.addEventListener('module-removed', e => multiplayer.send('MODULE_REMOVE', e.detail));
-        registry.addEventListener('param-changed',  e => multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value));
-        registry.addEventListener('patch-changed',  e => multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }));
+        registry.addEventListener('module-added',   e => { if (!_mpRemote) multiplayer.send('MODULE_ADD', e.detail); });
+        registry.addEventListener('module-removed', e => { if (!_mpRemote) multiplayer.send('MODULE_REMOVE', e.detail); });
+        registry.addEventListener('param-changed',  e => { if (!_mpRemote) multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value); });
+        registry.addEventListener('patch-changed',  e => { if (!_mpRemote) multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }); });
       }
       multiplayer.send('HELLO', helloPayload);
     }
@@ -2084,9 +2085,14 @@ multiplayer
       }
       consolePrint('competitive — your synth is your own. fight!', 5000);
     } else {
-      // Co-op: mirror host registry, client is read-only
-      multiplayer.replaySnapshot(registry, snap);
+      // Co-op: shared synth — both players can edit
+      multiplayer.replaySnapshot(registry, snap); // fires events synchronously; listeners added after so no echo
       audioGraph.ensure();
+      // Wire Bob's registry changes back to Alice (same guard prevents loops)
+      registry.addEventListener('module-added',   e => { if (!_mpRemote) multiplayer.send('MODULE_ADD', e.detail); });
+      registry.addEventListener('module-removed', e => { if (!_mpRemote) multiplayer.send('MODULE_REMOVE', e.detail); });
+      registry.addEventListener('param-changed',  e => { if (!_mpRemote) multiplayer.sendParam(e.detail.id, e.detail.param, e.detail.value); });
+      registry.addEventListener('patch-changed',  e => { if (!_mpRemote) multiplayer.send('PATCH_CHANGE', { patches: e.detail.patches }); });
       score = game.score;
       streakCount = game.streakCount; streakLevels = game.streakLevels;
       scoreValEl.textContent = score.toLocaleString();
@@ -2104,7 +2110,7 @@ multiplayer
         hintLabelEl.textContent = '';
         hintNotes = game.earTraining ? [] : game.challenge.notes.map(pc => ({ midi: pcToMidi(normPc(pc)), alpha: 0 }));
       }
-      consolePrint('connected — mirroring host synth', 5000);
+      consolePrint('connected — shared synth, edit together', 5000);
     }
   })
   // ── Client mirrors game events ──
@@ -2204,22 +2210,30 @@ multiplayer
   })
   // ── Client mirrors registry changes ──
   .on('MODULE_ADD', ({ id, type, params }) => {
-    if (!multiplayer.isClient) return;
+    if (selectedMode === 'competitive') return;
+    _mpRemote = true;
     registry.modules.set(id, { id, type, params: { ...params } });
     registry.dispatchEvent(new CustomEvent('module-added', { detail: { id, type, params } }));
+    _mpRemote = false;
   })
   .on('MODULE_REMOVE', ({ id }) => {
-    if (!multiplayer.isClient) return;
+    if (selectedMode === 'competitive') return;
+    _mpRemote = true;
     registry.removeModule(id);
+    _mpRemote = false;
   })
   .on('PARAM_CHANGE', ({ id, param, value }) => {
-    if (!multiplayer.isClient) return;
+    if (selectedMode === 'competitive') return;
+    _mpRemote = true;
     registry.setParam(id, param, value);
+    _mpRemote = false;
   })
   .on('PATCH_CHANGE', ({ patches }) => {
-    if (!multiplayer.isClient) return;
+    if (selectedMode === 'competitive') return;
+    _mpRemote = true;
     registry.patches = patches.map(p => ({ ...p }));
     registry.dispatchEvent(new CustomEvent('patch-changed', { detail: { patches: registry.patches } }));
+    _mpRemote = false;
   });
 
 multiplayer.init();

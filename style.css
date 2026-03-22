@@ -35,9 +35,7 @@ canvas { display: block; }
   letter-spacing: 3px;
 }
 
-/* Disable knob/jack interaction for client */
-body.mp-client .knob       { pointer-events: none; }
-body.mp-client .port-jack  { pointer-events: none; }
+/* Co-op clients can edit knobs/jacks — shop stays locked via JS */
 
 /* ── Chat ── */
 #chat-panel {
