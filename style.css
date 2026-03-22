@@ -46,6 +46,11 @@ body.mp-client .port-jack  { pointer-events: none; }
 }
 body.mp-connected #chat-panel { display: block; }
 
+#chat-hint {
+  color: rgba(255,255,255,.18); font-size: 10px; letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
 #chat-messages {
   max-height: 108px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 3px;
