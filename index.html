@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>M1D1SL0P2</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="pc"></canvas>
+<div id="audio-out-jack" class="port-jack" data-module="audio-out-0" data-port="in" style="--jh:0"></div>
+<div id="status">connecting to MIDI...</div>
+<div id="bpm"></div>
+
+<div id="game-controls">
+  <button id="mode-btn">PLAY</button>
+  <div class="key-selector">
+    <select id="key-root">
+      <option>C</option><option>C#</option><option>D</option><option>D#</option>
+      <option>E</option><option>F</option><option>F#</option><option>G</option>
+      <option>G#</option><option>A</option><option>A#</option><option>B</option>
+    </select>
+    <select id="key-scale">
+      <option value="major">MAJOR</option>
+      <option value="minor">MINOR</option>
+      <option value="dorian">DORIAN</option>
+      <option value="mixolydian">MIXO</option>
+      <option value="phrygian">PHRYG</option>
+      <option value="lydian">LYDIAN</option>
+    </select>
+  </div>
+  <button id="ear-btn" class="locked" title="Ear Training — unlocks at Level 10">EAR</button>
+  <button id="shop-btn" class="locked" title="Unlocks at Level 2">SHOP</button>
+</div>
+
+<button id="midi-learn-btn" title="MIDI Learn: click, then click a knob, then turn an encoder">MIDI LEARN</button>
+<div id="custom-btns"></div>
+
+<div id="hud">
+  <div id="score-val">0</div>
+  <div id="level-val">LEVEL 1</div>
+  <div id="streak-val"></div>
+</div>
+
+<div id="challenge">
+  <div class="prompt">play</div>
+  <div class="chord-name" id="challenge-name"></div>
+  <div class="hint-label" id="hint-label"></div>
+  <div id="challenge-timer-bar"><div id="challenge-timer-fill"></div></div>
+  <div id="challenge-timer-secs">5s</div>
+</div>
+
+<div id="panels-container"></div>
+
+<div id="shop-panel">
+  <div class="shop-header">
+    <span class="shop-title">MODULE SHOP</span>
+    <span id="shop-balance">0 pts</span>
+    <button id="shop-close-btn">✕</button>
+  </div>
+  <div id="shop-tabs" class="shop-tabs">
+    <button class="shop-tab active" data-tab="voices">VOICES</button>
+    <button class="shop-tab" data-tab="fx">FX</button>
+    <button class="shop-tab" data-tab="cv">CV</button>
+  </div>
+  <div id="shop-items"></div>
+</div>
+
+<div id="console-wrap">
+  <span id="console-prompt">&gt;</span>
+  <input id="cheat-input" autocomplete="off" spellcheck="false" placeholder="type help for commands">
+</div>
+<div id="console-out"></div>
+
+<div id="levelup"></div>
+<div id="label"></div>
+<div id="feedback"></div>
+<div id="notes"></div>
+
+<script type="module">
+import { Chord, Scale } from 'https://esm.sh/tonal@6';
+window.Chord = Chord;
+window.Scale = Scale;
+async function load(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+await load('config.js');
+await load('audio.js');
+await load('synth-ui.js');
+await load('app.js');
+</script>
+</body></html>
