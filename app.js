@@ -49,6 +49,7 @@ let synthRippleBoxes = [];
 let screenRipples    = [];
 let bpm = 0, clockTimes = [], pulseCount = 0, lastPulseTime = 0;
 let useMidiClock = false;
+let internalBpm = 120, internalBpmActive = false, _tapTimes = [];
 let detectedLabel = '', detectedHue = 0, labelFade = 0;
 
 let score        = 0;
@@ -903,7 +904,7 @@ class GameEngine {
 function saveState() {
   const data = {
     score, levelIdx, streakCount, streakLevels,
-    controlsBarPos, useMidiClock,
+    controlsBarPos, useMidiClock, internalBpm, internalBpmActive,
     fx: { ...FX },
     modules: [...registry.modules.values()].filter(m=>m.type!=='audio-out').map(m => ({ type:m.type, params:{...m.params} })),
     patches: registry.patches,
@@ -925,6 +926,8 @@ function loadState() {
     streakLevels = data.streakLevels ?? (data.streak ? Math.min(Math.floor(data.streak / 4), 4) : 0);
     if (data.controlsBarPos) controlsBarPos = data.controlsBarPos;
     if (data.useMidiClock !== undefined) useMidiClock = data.useMidiClock;
+    if (data.internalBpm) { internalBpm = data.internalBpm; internalBpmActive = data.internalBpmActive ?? false; }
+    if (internalBpmActive) bpmEl.textContent = `${internalBpm} bpm`;
     if (data.fx) Object.assign(FX, data.fx);
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
@@ -991,7 +994,11 @@ function folBoundR() {
   ) * folScale;
 }
 function folBaseR() { return folBoundR() / 3; }
-function folBeatMs()  { return 60000 / (bpm || 120); }
+function effectiveBpm() {
+  if (useMidiClock && bpm > 0) return bpm;
+  return internalBpmActive ? internalBpm : 120;
+}
+function folBeatMs()  { return 60000 / effectiveBpm(); }
 
 function folNodePos(fifthsIdx, ring) {
   const cx = canvas.width / 2, cy = canvas.height / 2;
@@ -1993,7 +2000,7 @@ multiplayer
       multiplayer._registryWired = true;
       const helloPayload = {
         game: {
-          score, levelIdx, streakCount, streakLevels, gameMode, earTraining, selectedMode, roundsPlayed,
+          score, levelIdx, streakCount, streakLevels, gameMode, earTraining, selectedMode, roundsPlayed, internalBpm, internalBpmActive,
           challenge: currentChallenge
             ? { display: currentChallenge.display, notes: currentChallenge.notes }
             : null,
@@ -2049,6 +2056,7 @@ multiplayer
   .on('HELLO', ({ registry: snap, game }) => {
     selectedMode = game.selectedMode ?? 'play';
     _syncModePanel();
+    if (game.internalBpmActive) { internalBpm = game.internalBpm ?? 120; internalBpmActive = true; bpmEl.textContent = `${internalBpm} bpm`; }
     levelIdx    = Math.min(game.levelIdx, GAME_CONFIG.levels.length - 1);
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
     hudEl.style.display = 'block';
@@ -2259,7 +2267,7 @@ document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
 
 document.getElementById('opt-midiclock')?.addEventListener('click', () => {
   useMidiClock = !useMidiClock;
-  if (!useMidiClock) { bpm = 0; clockTimes = []; bpmEl.textContent = ''; }
+  if (!useMidiClock) { bpm = 0; clockTimes = []; bpmEl.textContent = internalBpmActive ? `${internalBpm} bpm` : ''; }
   _syncModeToggles();
   saveState();
 });
@@ -2374,8 +2382,30 @@ function chatAppend(text, side) {
 
 multiplayer.on('CHAT', ({ text }) => chatAppend(text, multiplayer.isHost ? 'bob' : 'alice'));
 
+multiplayer.on('BPM_UPDATE', ({ bpm: b }) => {
+  internalBpm = b; internalBpmActive = true;
+  bpmEl.textContent = `${internalBpm} bpm`;
+});
+
 noteInputSystem.register(new PianoLayout());
 noteInputSystem.register(new FolLayout());
+
+// Tap tempo — click #bpm to set internal BPM; host pushes to client
+bpmEl.style.cursor = 'pointer';
+bpmEl.title = 'tap to set BPM';
+bpmEl.addEventListener('click', () => {
+  if (multiplayer.isClient) return;
+  const now = performance.now();
+  _tapTimes = _tapTimes.filter(t => now - t < 3000);
+  _tapTimes.push(now);
+  if (_tapTimes.length < 2) { bpmEl.textContent = 'TAP...'; return; }
+  const avg = (_tapTimes.at(-1) - _tapTimes[0]) / (_tapTimes.length - 1);
+  internalBpm = Math.max(40, Math.min(240, Math.round(60000 / avg)));
+  internalBpmActive = true;
+  bpmEl.textContent = `${internalBpm} bpm`;
+  saveState();
+  if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
+});
 
 if (!navigator.requestMIDIAccess) {
   statusEl.textContent='Web MIDI not supported — use Chrome';

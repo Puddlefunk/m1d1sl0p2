@@ -4,7 +4,8 @@ canvas { display: block; }
 #pc { position:fixed; top:0; left:0; pointer-events:none; z-index:2; }
 
 #status { position: fixed; top: 14px; left: 20px; color: rgba(255,255,255,.35); font-family: monospace; font-size: 12px; z-index: 10; }
-#bpm    { position: fixed; top: 30px; left: 20px; color: rgba(255,255,255,.25); font-family: monospace; font-size: 12px; z-index: 10; }
+#bpm    { position: fixed; top: 30px; left: 20px; color: rgba(255,255,255,.25); font-family: monospace; font-size: 12px; z-index: 10; cursor: pointer; transition: color .15s; user-select: none; }
+#bpm:hover { color: rgba(255,255,255,.55); }
 
 /* ── Multiplayer UI ── */
 #mp-ui { position: fixed; top: 50px; left: 20px; display: flex; align-items: center; gap: 7px; z-index: 10; }
