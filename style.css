@@ -40,31 +40,45 @@ body.mp-client .port-jack  { pointer-events: none; }
 
 /* ── Chat ── */
 #chat-panel {
-  display: none;
-  position: fixed; bottom: 260px; left: 16px;
+  position: fixed; bottom: 56px; left: 16px;
   width: 260px; z-index: 10; font-family: monospace; font-size: 11px;
+  background: linear-gradient(180deg, rgba(255,255,255,.06) 0%, rgba(255,255,255,.02) 30%, rgba(0,0,0,0) 60%), rgba(12,12,16,.92);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 6px;
+  backdrop-filter: blur(18px) brightness(.72);
+  -webkit-backdrop-filter: blur(18px) brightness(.72);
+  box-shadow: 0 4px 24px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
+  opacity: 0; pointer-events: none; transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
-body.mp-connected #chat-panel { display: block; }
+body.mp-connected #chat-panel.chat-open {
+  opacity: 1; pointer-events: auto; transform: translateY(0);
+}
 
-#chat-hint {
-  color: rgba(255,255,255,.18); font-size: 10px; letter-spacing: 1px;
-  margin-bottom: 6px;
+.chat-header {
+  display: flex; align-items: center; padding: 8px 10px 6px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
 }
+.chat-title { flex: 1; font-size: 8px; letter-spacing: 4px; color: rgba(255,255,255,.25); text-transform: uppercase; }
+#chat-close-btn {
+  background: none; border: none; padding: 0 0 0 6px;
+  color: rgba(255,255,255,.22); cursor: pointer; font-size: 11px; line-height: 1;
+}
+#chat-close-btn:hover { color: rgba(255,255,255,.65); }
 
 #chat-messages {
-  max-height: 108px; overflow-y: auto;
+  max-height: 120px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 3px;
-  margin-bottom: 5px; padding-right: 2px;
-  scrollbar-width: none;
+  padding: 8px 10px 8px; scrollbar-width: none;
 }
 #chat-messages::-webkit-scrollbar { display: none; }
 
-.chat-msg { color: rgba(255,255,255,.45); word-break: break-word; line-height: 1.4; }
+.chat-msg { color: rgba(255,255,255,.45); word-break: break-word; line-height: 1.45; }
 .chat-msg .chat-who { letter-spacing: 1px; margin-right: 5px; }
-.chat-msg.chat-you   .chat-who { color: rgba(255,255,255,.6); }
-.chat-msg.chat-alice .chat-who { color: rgba(255,255,255,.6); }
-.chat-msg.chat-bob   .chat-who { color: rgba(60,200,255,.7); }
-.chat-msg.chat-them  .chat-who { color: rgba(60,200,255,.7); }
+.chat-msg.chat-you    .chat-who { color: rgba(255,255,255,.6); }
+.chat-msg.chat-alice  .chat-who { color: rgba(255,255,255,.6); }
+.chat-msg.chat-bob    .chat-who { color: rgba(60,200,255,.7); }
+.chat-msg.chat-them   .chat-who { color: rgba(60,200,255,.7); }
+.chat-msg.chat-system { color: rgba(255,255,255,.25); font-style: italic; }
 
 
 #game-controls {

@@ -1981,6 +1981,7 @@ multiplayer
   .on('connected', () => {
     document.body.classList.add('mp-connected');
     consolePrint(selectedMode === 'competitive' ? 'opponent connected — fight!' : 'co-op partner connected', 4000);
+    setTimeout(() => chatAppend(selectedMode === 'competitive' ? 'opponent connected' : 'partner connected', 'system'), 50);
     if (multiplayer.isHost && !multiplayer._registryWired) {
       multiplayer._registryWired = true;
       const helloPayload = {
@@ -2004,6 +2005,14 @@ multiplayer
   })
   .on('disconnected', () => {
     consolePrint('co-op partner disconnected — solo mode', 5000);
+    const msg = document.createElement('div');
+    msg.className = 'chat-msg chat-system';
+    msg.textContent = 'partner disconnected';
+    chatMessagesEl.appendChild(msg);
+    chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    chatPanelEl.classList.add('chat-open');
+    clearTimeout(_chatHideTimer);
+    _chatHideTimer = setTimeout(() => chatPanelEl.classList.remove('chat-open'), 10000);
     for (const midi of remoteNotes.keys()) onNoteOffFlower(midi);
     remoteNotes.clear();
     document.body.classList.remove('mp-client');
@@ -2288,18 +2297,48 @@ document.getElementById('mode-share-btn')?.addEventListener('click', () => {
 });
 
 // ── Chat ──
+const chatPanelEl    = document.getElementById('chat-panel');
 const chatMessagesEl = document.getElementById('chat-messages');
+const chatInputEl    = document.getElementById('cheat-input');
+let _chatHideTimer   = null;
+
+function _chatShow() {
+  chatPanelEl.classList.add('chat-open');
+  _chatRescheduleHide();
+}
+function _chatRescheduleHide() {
+  clearTimeout(_chatHideTimer);
+  if (document.activeElement === chatInputEl) return;
+  _chatHideTimer = setTimeout(() => chatPanelEl.classList.remove('chat-open'), 10000);
+}
+function _chatForceClose() {
+  clearTimeout(_chatHideTimer);
+  chatPanelEl.classList.remove('chat-open');
+}
+
+chatInputEl.addEventListener('focus', () => {
+  clearTimeout(_chatHideTimer);
+  if (multiplayer.isConnected) chatPanelEl.classList.add('chat-open');
+});
+chatInputEl.addEventListener('blur', () => {
+  if (multiplayer.isConnected) _chatRescheduleHide();
+});
+document.getElementById('chat-close-btn').addEventListener('click', _chatForceClose);
 
 function chatAppend(text, side) {
   const msg = document.createElement('div');
   msg.className = `chat-msg chat-${side}`;
-  const who = document.createElement('span');
-  who.className = 'chat-who';
-  who.textContent = side; // 'you', 'alice', or 'bob'
-  msg.append(who, text);
+  if (side !== 'system') {
+    const who = document.createElement('span');
+    who.className = 'chat-who';
+    who.textContent = side;
+    msg.appendChild(who);
+  }
+  msg.appendChild(document.createTextNode(text));
   chatMessagesEl.appendChild(msg);
   if (chatMessagesEl.children.length > 60) chatMessagesEl.firstChild.remove();
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  if (multiplayer.isConnected) _chatShow();
 }
 
 multiplayer.on('CHAT', ({ text }) => chatAppend(text, multiplayer.isHost ? 'bob' : 'alice'));
