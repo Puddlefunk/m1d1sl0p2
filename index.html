@@ -35,6 +35,11 @@
     </select>
   </div>
   <div class="clock-divider"></div>
+  <div class="clock-ext-wrap" title="External MIDI Clock">
+    <button id="opt-midiclock" class="clock-ext-btn">EXT</button>
+    <span id="bpm-display" class="clock-ext-bpm"></span>
+  </div>
+  <div class="clock-divider"></div>
   <span id="mp-dot" class="mp-dot mp-solo" title="Multiplayer status"></span>
 </div>
 
@@ -135,13 +140,8 @@
       </div>
       <div class="mode-toggle-row" style="align-items:center;">
         <span class="mode-toggle-label">NODE SCALE</span>
-        <input type="range" id="opt-node-scale" min="0.4" max="3" step="0.05" value="1.6" style="flex:1;margin:0 8px;">
-        <span id="opt-node-scale-val" style="font-size:10px;color:rgba(255,255,255,.5);min-width:2.5ch;">1.6</span>
-      </div>
-      <div class="mode-toggle-row">
-        <span class="mode-toggle-label">EXTERNAL MIDI CLOCK</span>
-        <span id="bpm-display"></span>
-        <button class="mode-toggle" id="opt-midiclock"></button>
+        <input type="range" id="opt-node-scale" min="0.3" max="2" step="0.05" value="1.0" style="flex:1;margin:0 8px;">
+        <span id="opt-node-scale-val" style="font-size:10px;color:rgba(255,255,255,.5);min-width:2.5ch;">1.0</span>
       </div>
     </div>
   </div>

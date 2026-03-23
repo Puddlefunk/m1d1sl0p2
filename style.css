@@ -33,9 +33,26 @@ canvas { display: block; }
 .clock-bpm-unit { font-size: 9px; color: rgba(255,255,255,.32); letter-spacing: .06em; }
 
 .clock-divider { width: 1px; height: 14px; background: rgba(255,255,255,.12); flex-shrink: 0; }
+#clock-panel .key-selector { display: flex; align-items: center; gap: 4px; }
 #clock-panel .key-selector select {
-  font-size: 10px; padding: 2px 4px; height: 22px;
+  font-size: 10px; padding: 1px 3px; height: 20px;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+  color: rgba(255,255,255,.7); font-family: monospace; letter-spacing: .04em;
+  border-radius: 3px; cursor: pointer; outline: none;
+  -webkit-appearance: none; appearance: none;
 }
+#clock-panel .key-selector select:hover { background: rgba(255,255,255,.12); color: rgba(255,255,255,.9); }
+/* Ext MIDI clock in transport bar */
+.clock-ext-wrap { display: flex; align-items: center; gap: 4px; }
+.clock-ext-btn {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+  color: rgba(255,255,255,.45); cursor: pointer; border-radius: 3px;
+  padding: 1px 5px; font-size: 9px; font-family: monospace; letter-spacing: .08em;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.clock-ext-btn:hover { background: rgba(255,255,255,.14); color: rgba(255,255,255,.75); }
+.clock-ext-btn.active { background: rgba(255,185,40,.16); border-color: rgba(255,185,40,.4); color: rgba(255,185,40,.9); }
+.clock-ext-bpm { font-size: 10px; color: rgba(255,185,40,.7); font-family: monospace; min-width: 2ch; letter-spacing: .02em; }
 /* ── Multiplayer UI ── */
 
 .mp-dot {
@@ -383,7 +400,19 @@ body.mp-connected .mode-disconnect-btn { display: block; }
   margin-bottom: 4px;
 }
 .shop-gen-empty { font-size: 10px; color: rgba(255,255,255,.25); padding: 6px 2px; font-style: italic; }
-.shop-gen-row { opacity: 0.8; }
+.shop-gen-row { opacity: 0.88; }
+.gen-toggle-btn {
+  padding: 3px 8px; font-size: 9px; font-family: monospace; letter-spacing: .06em;
+  background: rgba(255,175,40,.12); border: 1px solid rgba(255,175,40,.3);
+  color: rgba(255,175,40,.85); border-radius: 3px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.gen-toggle-btn:hover { background: rgba(255,175,40,.22); color: rgba(255,175,40,1); }
+.gen-toggle-btn.gen-deployed {
+  background: rgba(255,175,40,.06); border-color: rgba(255,175,40,.18);
+  color: rgba(255,175,40,.45);
+}
+.gen-toggle-btn.gen-deployed:hover { background: rgba(255,60,60,.14); border-color: rgba(255,60,60,.3); color: rgba(255,80,80,.9); }
 .panel-box.unlocked { opacity: 1; transform: translateY(0); pointer-events: all; }
 .panel-box > .panel-title {
   display: block; font-size: 10px; letter-spacing: 3px;
@@ -568,9 +597,11 @@ body.mp-connected .mode-disconnect-btn { display: block; }
 .shop-tab { flex:1; padding:7px 0; text-align:center; font-size:9px; letter-spacing:3px; color:rgba(255,255,255,.28); cursor:pointer; border:none; background:none; font-family:monospace; border-bottom:2px solid transparent; transition:color .15s, border-color .15s; }
 .shop-tab:hover:not(.active) { color:rgba(255,255,255,.5); }
 .shop-tab.active { color:rgba(255,255,255,.75); border-bottom-color:rgba(255,255,255,.28); }
-.shop-tab.active[data-tab="voices"] { color:rgba(80,220,100,0.85); border-bottom-color:rgba(80,220,100,0.5); }
-.shop-tab.active[data-tab="fx"]     { color:rgba(180,100,255,0.85); border-bottom-color:rgba(180,100,255,0.5); }
-.shop-tab.active[data-tab="cv"]     { color:rgba(255,185,55,0.85);  border-bottom-color:rgba(255,185,55,0.5); }
+.shop-tab.active[data-tab="voices"]     { color:rgba(80,220,100,0.85);  border-bottom-color:rgba(80,220,100,0.5); }
+.shop-tab.active[data-tab="fx"]         { color:rgba(80,160,255,0.85);  border-bottom-color:rgba(80,160,255,0.5); }
+.shop-tab.active[data-tab="cv"]         { color:rgba(220,200,40,0.85);  border-bottom-color:rgba(220,200,40,0.5); }
+.shop-tab.active[data-tab="drums"]      { color:rgba(255,90,70,0.85);   border-bottom-color:rgba(255,90,70,0.5); }
+.shop-tab.active[data-tab="generators"] { color:rgba(255,175,40,0.85);  border-bottom-color:rgba(255,175,40,0.5); }
 
 /* Console input row — lives inside #chat-panel */
 #console-wrap {

@@ -82,6 +82,7 @@ let roundsPlayed = 0;              // competitive: shared round counter for leve
 let lockedOut      = false;        // competitive: host locked out this round
 let remoteLockedOut = false;       // competitive: client locked out this round
 let idleTimeouts = 0;             // consecutive no-attempt timeouts; auto-pauses at 10
+let midiDevices = new Map();      // id → { id, name } — connected devices, separate from registry
 
 let _wrongPenaltyGiven = false;   // once per challenge
 let _bonusExtPCs       = new Set(); // extension PCs set at triggerSuccess
@@ -198,8 +199,8 @@ const bpmDisplayEl    = document.getElementById('bpm-display');
 function _setBpmText(txt) {
   bpmEl.textContent = txt;
   if (bpmDisplayEl) {
-    const num = txt.replace(' bpm', '').trim();
-    bpmDisplayEl.textContent = num || String(internalBpm || 120);
+    // Only show BPM in the ext display when ext clock is active
+    bpmDisplayEl.textContent = useMidiClock ? txt.replace(' bpm', '').trim() : '';
   }
 }
 const modeBtnEl       = document.getElementById('mode-btn');
@@ -1096,7 +1097,11 @@ function loadState() {
     if (data.controlsBarPos) controlsBarPos = data.controlsBarPos;
     if (data.useMidiClock !== undefined) useMidiClock = data.useMidiClock;
     if (data.audibleChallenges !== undefined) audibleChallenges = data.audibleChallenges;
-    if (data.folScale) { folScale = data.folScale; const sl = document.getElementById('opt-node-scale'); if (sl) { sl.value = folScale; const lbl = document.getElementById('opt-node-scale-val'); if (lbl) lbl.textContent = folScale.toFixed(2); } }
+    if (data.folScale) {
+      // Clamp: old saves used folScale=1.6 with old formula (different scale range)
+      folScale = Math.max(0.3, Math.min(2, data.folScale > 2 ? data.folScale / 1.6 : data.folScale));
+      const sl = document.getElementById('opt-node-scale'); if (sl) { sl.value = folScale; const lbl = document.getElementById('opt-node-scale-val'); if (lbl) lbl.textContent = folScale.toFixed(2); }
+    }
     if (data.internalBpm) { internalBpm = data.internalBpm; internalBpmActive = data.internalBpmActive ?? false; }
     if (internalBpmActive) _setBpmText(`${internalBpm} bpm`);
     if (data.transportBpm != null) registry.setParam('transport-0', 'bpm', data.transportBpm);
@@ -1154,7 +1159,7 @@ function loadState() {
 // SECTION 20 — FLOWER OF LIFE VISUAL SYSTEM
 // ─────────────────────────────────────────────────────────────
 const FOL_RINGS = 5;
-let folScale = 1.6; // user-adjustable via 'fol <n>' command
+let folScale = 1.0; // user-adjustable via 'fol <n>' command — fraction of viewport bound
 
 function folBoundR() {
   const kH  = (Math.min(canvas.width - 60, 720) / 14) * 4; // keyboard height
@@ -1163,9 +1168,10 @@ function folBoundR() {
     canvas.width  / 2 - pad,
     canvas.height / 2 - kH - 14 - kbRiseOffset - pad,  // clear keyboard bottom
     canvas.height / 2 - 60              // clear top HUD
-  ) * folScale;
+  );
 }
-function folBaseR() { return folBoundR() / 3; }
+// folBaseR applies folScale so the user-adjustable scale is always relative to viewport
+function folBaseR() { return folBoundR() * folScale / 3; }
 function effectiveBpm() {
   if (useMidiClock && bpm > 0) return bpm;
   return internalBpmActive ? internalBpm : 120;
@@ -1877,7 +1883,9 @@ function runDetection() {
   } else if (!label) { detectedLabel=''; labelFade=0; }
 }
 
-function onNoteOn(note, velocity, midiDeviceId = null) {
+function onNoteOn(note, velocity, midiDeviceId = null, fromMidi = false) {
+  // If note comes from MIDI hardware and midi-all-0 has been sold, don't route it
+  if (fromMidi && !registry.modules.has('midi-all-0')) return;
   audioGraph.ensure();
   activeNotes.set(note,{ startTime:performance.now() });
   if (showParticleRings) spawnRing(note,velocity);
@@ -1916,7 +1924,8 @@ function onNoteOn(note, velocity, midiDeviceId = null) {
   }
 }
 
-function onNoteOff(note) {
+function onNoteOff(note, fromMidi = false) {
+  if (fromMidi && !registry.modules.has('midi-all-0')) return;
   // Match the seqId used in onNoteOn for clean voice release
   const _stopMidiAllOscPatches = registry.patchesFrom('midi-all-0').filter(p =>
     p.fromPort === 'note-out' && p.signalType === 'note' &&
@@ -2038,9 +2047,10 @@ document.addEventListener('mouseup', () => {
       const sr = shopEl.getBoundingClientRect();
       if (mouseX>=sr.left && mouseX<=sr.right && mouseY>=sr.top && mouseY<=sr.bottom) {
         const moduleId = panelDrag.panel.id.replace(/^panel-/, '');
-        if (moduleId !== 'audio-out-0' && moduleId !== 'transport-0' && moduleId !== 'midi-all-0' && registry.modules.has(moduleId)) {
+        if (moduleId !== 'audio-out-0' && moduleId !== 'transport-0' && registry.modules.has(moduleId)) {
           const modType = registry.modules.get(moduleId).type;
-          const refund = Math.floor((GAME_CONFIG.modulePrices[modType] ?? 0) / 2);
+          const price = GAME_CONFIG.modulePrices[modType] ?? 0;
+          const refund = price === 0 ? 0 : Math.floor(price / 2); // free modules give no refund
           registry.removeModule(moduleId);
           score += refund;
           scoreValEl.textContent = score.toLocaleString();
@@ -2197,7 +2207,14 @@ function dispatchCommand(v) {
   }
   if (base==='resetlevel') { levelIdx=0; levelValEl.textContent=GAME_CONFIG.levels[0].label; consolePrint('Level reset.', ms); saveState(); return; }
   if (base==='resetscore') { score=0; scoreValEl.textContent='0'; streakCount=0; streakLevels=0; streakValEl.style.opacity='0'; consolePrint('Score reset.', ms); saveState(); return; }
-  if (base==='resetmods') { for(const id of [...registry.modules.keys()])if(id!=='audio-out-0'&&id!=='transport-0'&&id!=='midi-all-0')registry.removeModule(id); const oid=registry.addModule('osc-sine'); registry.addPatch(oid,'audio','audio-out-0','in'); registry.addPatch('midi-all-0','note-out',oid,'note-in'); audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return; }
+  if (base==='resetmods') {
+    for(const id of [...registry.modules.keys()]) if(id!=='audio-out-0'&&id!=='transport-0') registry.removeModule(id);
+    registry.addModule('midi-all'); // re-add → midi-all-0
+    const oid=registry.addModule('osc-sine');
+    registry.addPatch(oid,'audio','audio-out-0','in');
+    registry.addPatch('midi-all-0','note-out',oid,'note-in');
+    audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return;
+  }
   if (base==='idkfa') { score+=5000; scoreValEl.textContent=score.toLocaleString(); if(shopSystem?.el.classList.contains('open'))shopSystem.render(score); consolePrint('+5000 pts', ms); saveState(); return; }
   if (base==='flash') { triggerPhosphorFlash(); consolePrint('✦ flash', ms); return; }
   if (base==='burn')  { spawnBurnEffect(currentChallenge?.h ?? folPhosphorHue); consolePrint('✦ burn', ms); return; }
@@ -2227,6 +2244,7 @@ function dispatchCommand(v) {
     shopBtnEl.classList.remove('locked'); _unlockEarMode();
     playLevelUpSound(); consolePrint('GOD MODE — max level, shop + ear training unlocked', ms); saveState(); return;
   }
+  if (base==='-000') { score+=99999; scoreValEl.textContent=score.toLocaleString(); shopBtnEl.classList.remove('locked'); shopSystem?.render(score); saveState(); return; }
   const tog = (flag, setter, name) => { setter(!flag); consolePrint(`${name}: ${!flag ? 'ON' : 'OFF'}`, ms); };
   if (base==='bg')         { tog(showFlowerBg,       v => showFlowerBg = v,        'flower background'); return; }
   if (base==='nodes')      { tog(showFlowerNodes,    v => showFlowerNodes = v,     'flower nodes'); return; }
@@ -2778,7 +2796,7 @@ function _syncModeToggles() {
   document.getElementById('opt-keys')?.classList.toggle('on', showKeyboard);
   document.getElementById('opt-mods')?.classList.toggle('on', showModules);
   document.getElementById('opt-audible')?.classList.toggle('on', audibleChallenges);
-  document.getElementById('opt-midiclock')?.classList.toggle('on', useMidiClock);
+  document.getElementById('opt-midiclock')?.classList.toggle('active', useMidiClock);
   bpmDisplayEl?.classList.toggle('ext-active', useMidiClock);
 }
 
@@ -2976,35 +2994,7 @@ bpmEl.addEventListener('click', () => {
   if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
 });
 
-// Drag #bpm-display up/down to adjust BPM (like a line fader)
-if (bpmDisplayEl) {
-  bpmDisplayEl.style.cursor = 'ns-resize';
-  bpmDisplayEl.title = 'drag up/down to set BPM';
-  let _bpmDragStartY = 0, _bpmDragStartVal = 0, _bpmDragging = false;
-  bpmDisplayEl.addEventListener('pointerdown', e => {
-    if (multiplayer.isClient) return;
-    _bpmDragging = true;
-    _bpmDragStartY = e.clientY;
-    _bpmDragStartVal = effectiveBpm();
-    bpmDisplayEl.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  });
-  bpmDisplayEl.addEventListener('pointermove', e => {
-    if (!_bpmDragging) return;
-    const delta = Math.round((_bpmDragStartY - e.clientY) / 1.5);
-    const v = Math.max(40, Math.min(240, _bpmDragStartVal + delta));
-    if (v !== internalBpm) {
-      internalBpm = v; internalBpmActive = true;
-      _setBpmText(`${internalBpm} bpm`);
-    }
-  });
-  bpmDisplayEl.addEventListener('pointerup', e => {
-    if (!_bpmDragging) return;
-    _bpmDragging = false;
-    saveState();
-    if (multiplayer.isHost) multiplayer.send('BPM_UPDATE', { bpm: internalBpm });
-  });
-}
+// bpmDisplayEl is now in the transport bar, showing ext clock BPM only when active
 
 if (!navigator.requestMIDIAccess) {
   statusEl.textContent='Web MIDI not supported — use Chrome';
@@ -3035,35 +3025,33 @@ if (!navigator.requestMIDIAccess) {
       }
       const isOn=(cmd&0xf0)===0x90&&velocity>0;
       const isOff=(cmd&0xf0)===0x80||((cmd&0xf0)===0x90&&velocity===0);
-      if (isOn)  onNoteOn(note, velocity, e.target?.id);
-      if (isOff) onNoteOff(note);
+      if (isOn)  onNoteOn(note, velocity, e.target?.id, true);
+      if (isOff) onNoteOff(note, true);
     }
     function connectAll() {
-      // Sync midi-in modules with connected devices
-      const connectedDeviceIds = new Set([...midi.inputs.values()].map(i => i.id));
-      const existingMidiIns = [...registry.modules.values()].filter(m => m.type === 'midi-in');
-      // Remove modules for disconnected devices
-      for (const mod of existingMidiIns) {
-        if (!connectedDeviceIds.has(mod.params.deviceId)) registry.removeModule(mod.id);
+      // Sync midiDevices map with currently connected devices (don't auto-add to registry)
+      const connected = new Set([...midi.inputs.values()].map(i => i.id));
+      // Remove disconnected devices from map + remove any deployed midi-in modules for them
+      for (const [devId] of [...midiDevices]) {
+        if (!connected.has(devId)) {
+          midiDevices.delete(devId);
+          for (const [modId, mod] of registry.modules) {
+            if (mod.type === 'midi-in' && mod.params.deviceId === devId) {
+              registry.removeModule(modId); break;
+            }
+          }
+        }
       }
-      // Add modules for newly connected devices
-      const knownIds = new Set([...registry.modules.values()].filter(m=>m.type==='midi-in').map(m=>m.params.deviceId));
+      // Add newly connected devices to map and wire message handler
       for (const inp of midi.inputs.values()) {
-        if (!knownIds.has(inp.id)) registry.addModule('midi-in', { deviceId: inp.id, deviceName: inp.name });
+        if (!midiDevices.has(inp.id)) midiDevices.set(inp.id, { id: inp.id, name: inp.name });
         inp.onmidimessage = onMidiMessage;
       }
       statusEl.textContent = `MIDI connected — ${midi.inputs.size} input(s)`;
       shopSystem?.render(gameEngine?.score ?? 0); // refresh GEN tab
     }
     connectAll();
-    midi.onstatechange = e => {
-      if (e.port.type === 'input' && e.port.state === 'disconnected') {
-        for (const [id, mod] of registry.modules) {
-          if (mod.type === 'midi-in' && mod.params.deviceId === e.port.id) { registry.removeModule(id); break; }
-        }
-      }
-      connectAll();
-    };
+    midi.onstatechange = () => connectAll();
   }).catch(()=>{ statusEl.textContent='MIDI access denied — check Chrome permissions'; });
 }
 

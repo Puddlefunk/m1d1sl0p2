@@ -1644,40 +1644,8 @@ class ShopSystem {
     this.balEl.textContent = score.toLocaleString()+' pts';
     this.itemsEl.innerHTML = '';
 
-    // ── Generators tab: live MIDI device list at top ────────────
+    // ── Generators tab: sequencers first, then MIDI inputs ──────
     if (this.activeTab === 'generators') {
-      const section = document.createElement('div');
-      section.className = 'shop-section-label';
-      section.textContent = 'MIDI INPUTS';
-      this.itemsEl.appendChild(section);
-
-      // midi-all singleton
-      const allMod = registry.modules.get('midi-all-0');
-      if (allMod) {
-        const row = document.createElement('div');
-        row.className = 'shop-item shop-gen-row';
-        row.innerHTML = `<div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♬ ALL MIDI</div>
-          <div class="shop-item-desc">Unified signal from all connected devices. Always active.</div>`;
-        this.itemsEl.appendChild(row);
-      }
-
-      // per-device midi-in modules
-      const midiIns = [...registry.modules.values()].filter(m => m.type === 'midi-in');
-      if (midiIns.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'shop-gen-empty';
-        empty.textContent = 'No MIDI devices connected';
-        this.itemsEl.appendChild(empty);
-      } else {
-        for (const mod of midiIns) {
-          const row = document.createElement('div');
-          row.className = 'shop-item shop-gen-row';
-          row.innerHTML = `<div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♩ ${mod.params.deviceName || 'MIDI IN'}</div>
-            <div class="shop-item-desc">Module ID: ${mod.id}</div>`;
-          this.itemsEl.appendChild(row);
-        }
-      }
-
       const seqSection = document.createElement('div');
       seqSection.className = 'shop-section-label';
       seqSection.textContent = 'SEQUENCERS';
@@ -1720,5 +1688,80 @@ class ShopSystem {
         this.render(gameEngine.score);
       });
     });
+
+    // ── Generators tab: MIDI inputs section (after sequencers) ──
+    if (this.activeTab === 'generators') {
+      const midiSection = document.createElement('div');
+      midiSection.className = 'shop-section-label';
+      midiSection.textContent = 'MIDI INPUTS';
+      this.itemsEl.appendChild(midiSection);
+
+      // midi-all row — sellable/re-addable
+      const allDeployed = registry.modules.has('midi-all-0');
+      const allRow = document.createElement('div');
+      allRow.className = 'shop-item shop-gen-row';
+      allRow.innerHTML = `
+        <div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♬ ALL MIDI</div>
+        <div class="shop-item-desc">Unified signal from all connected devices</div>
+        <div class="shop-item-footer">
+          <span class="shop-item-price">FREE</span>
+          <button class="gen-toggle-btn ${allDeployed ? 'gen-deployed' : ''}"
+            data-gen="midi-all" data-deployed="${allDeployed}">
+            ${allDeployed ? 'DEPLOYED' : 'ADD'}
+          </button>
+        </div>`;
+      this.itemsEl.appendChild(allRow);
+
+      // per-device midi-in rows from midiDevices map
+      const devMap = typeof midiDevices !== 'undefined' ? midiDevices : new Map();
+      if (devMap.size === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'shop-gen-empty';
+        empty.textContent = 'No MIDI devices connected';
+        this.itemsEl.appendChild(empty);
+      } else {
+        for (const [devId, dev] of devMap) {
+          const devMod = [...registry.modules.values()].find(m => m.type === 'midi-in' && m.params.deviceId === devId);
+          const deployed = !!devMod;
+          const row = document.createElement('div');
+          row.className = 'shop-item shop-gen-row';
+          row.innerHTML = `
+            <div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♩ ${dev.name}</div>
+            <div class="shop-item-desc">Per-device MIDI generator</div>
+            <div class="shop-item-footer">
+              <span class="shop-item-price">FREE</span>
+              <button class="gen-toggle-btn ${deployed ? 'gen-deployed' : ''}"
+                data-gen="midi-in" data-device-id="${devId}" data-device-name="${dev.name}"
+                data-mod-id="${devMod?.id || ''}" data-deployed="${deployed}">
+                ${deployed ? 'DEPLOYED' : 'ADD'}
+              </button>
+            </div>`;
+          this.itemsEl.appendChild(row);
+        }
+      }
+
+      // Wire gen toggle buttons
+      this.itemsEl.querySelectorAll('.gen-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const gen = btn.dataset.gen;
+          const deployed = btn.dataset.deployed === 'true';
+          if (deployed) {
+            // Sell (put back in shop, no score change)
+            const modId = gen === 'midi-all' ? 'midi-all-0' : btn.dataset.modId;
+            if (registry.modules.has(modId)) registry.removeModule(modId);
+          } else {
+            // Add to registry
+            if (gen === 'midi-all') {
+              registry.addModule('midi-all');
+            } else {
+              registry.addModule('midi-in', { deviceId: btn.dataset.deviceId, deviceName: btn.dataset.deviceName });
+            }
+            audioGraph.ensure();
+          }
+          saveState();
+          this.render(gameEngine.score);
+        });
+      });
+    }
   }
 }
