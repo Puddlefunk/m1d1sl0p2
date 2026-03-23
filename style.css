@@ -357,7 +357,7 @@ body.mp-connected .mode-disconnect-btn { display: block; }
   padding: 16px 12px 12px; pointer-events: none;
   box-shadow: 0 4px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
   --ph: 200; opacity: 0; transform: translateY(-5px);
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition: opacity 0.5s ease, transform 0.5s ease, box-shadow 0.4s ease;
 }
 /* OSC — green tint */
 .panel-box.panel-osc {
@@ -370,10 +370,10 @@ body.mp-connected .mode-disconnect-btn { display: block; }
   background: linear-gradient(180deg, rgba(160,80,255,0.07) 0%, rgba(120,50,200,0.03) 30%, rgba(0,0,0,0) 60%), rgba(8,4,14,0.38);
   border-color: rgba(160,80,255,0.18);
 }
-/* Mixer — yellow tint */
+/* Mixer — blue tint */
 .panel-box.panel-mixer {
-  background: linear-gradient(180deg, rgba(240,210,50,0.08) 0%, rgba(200,170,30,0.03) 30%, rgba(0,0,0,0) 60%), rgba(10,9,4,0.38);
-  border-color: rgba(240,210,50,0.2);
+  background: linear-gradient(180deg, rgba(80,150,255,0.08) 0%, rgba(50,110,220,0.03) 30%, rgba(0,0,0,0) 60%), rgba(4,6,16,0.38);
+  border-color: rgba(80,150,255,0.22);
 }
 /* Generator modules — warm gold tint */
 .panel-box.panel-generator {
@@ -387,8 +387,8 @@ body.mp-connected .mode-disconnect-btn { display: block; }
   justify-content: space-between; padding: 8px 6px 6px;
 }
 .panel-box.panel-midi .panel-title {
-  font-size: 8px; letter-spacing: 2px; text-align: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 9px; letter-spacing: 2px; text-align: center;
+  white-space: normal; word-break: break-word; line-height: 1.3;
   max-width: 88px;
 }
 .midi-panel-sym {
@@ -417,18 +417,12 @@ body.mp-connected .mode-disconnect-btn { display: block; }
 }
 .shop-gen-empty { font-size: 10px; color: rgba(255,255,255,.25); padding: 6px 2px; font-style: italic; }
 .shop-gen-row { opacity: 0.88; }
-.gen-toggle-btn {
-  padding: 3px 8px; font-size: 9px; font-family: monospace; letter-spacing: .06em;
-  background: rgba(255,175,40,.12); border: 1px solid rgba(255,175,40,.3);
-  color: rgba(255,175,40,.85); border-radius: 3px; cursor: pointer;
-  transition: background .12s, color .12s;
-}
-.gen-toggle-btn:hover { background: rgba(255,175,40,.22); color: rgba(255,175,40,1); }
+/* gen-toggle-btn inherits shop-buy-btn base style via class combo in HTML */
 .gen-toggle-btn.gen-deployed {
-  background: rgba(255,175,40,.06); border-color: rgba(255,175,40,.18);
-  color: rgba(255,175,40,.45);
+  background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.1);
+  color: rgba(255,255,255,.3); cursor: default;
 }
-.gen-toggle-btn.gen-deployed:hover { background: rgba(255,60,60,.14); border-color: rgba(255,60,60,.3); color: rgba(255,80,80,.9); }
+.gen-toggle-btn.gen-deployed:hover { background: rgba(255,60,60,.12); border-color: rgba(255,60,60,.28); color: rgba(255,80,80,.8); cursor: pointer; }
 .panel-box.unlocked { opacity: 1; transform: translateY(0); pointer-events: all; }
 .panel-box > .panel-title {
   display: block; font-size: 10px; letter-spacing: 3px;

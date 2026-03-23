@@ -43,6 +43,7 @@ class UIRenderer {
     this.registry   = registry;
     this.container  = document.getElementById('panels-container');
     this.panelMap   = new Map(); // moduleId → DOM element
+    this.jackLighting = true;
     this.positions  = {};        // loaded from localStorage
     this.panelTopZ  = 5;
 
@@ -642,16 +643,16 @@ class UIRenderer {
         panel.appendChild(noteOutList);
       }
       noteOutList.innerHTML = '';
-      // Empty jack first (always available for new connections)
-      const emptyRow = document.createElement('li'); emptyRow.className = 'port-out-row';
-      emptyRow.innerHTML = `<div class="port-jack port-out port-note" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
-      noteOutList.appendChild(emptyRow);
-      // Plugged jacks below — one per existing patch
+      // Plugged jacks first (existing patches in order)
       this.registry.patchesFrom(id).filter(p => p.fromPort === port).forEach(() => {
         const row = document.createElement('li'); row.className = 'port-out-row';
         row.innerHTML = `<div class="port-jack port-out port-note plugged" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
         noteOutList.appendChild(row);
       });
+      // One empty jack at end for new connections
+      const emptyRow = document.createElement('li'); emptyRow.className = 'port-out-row';
+      emptyRow.innerHTML = `<div class="port-jack port-out port-note" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
+      noteOutList.appendChild(emptyRow);
     }
 
     // ── Note input jack ─────────────────────────────────────────────
@@ -726,6 +727,7 @@ class UIRenderer {
         if (jack) jack.classList.toggle('plugged', this.registry.patchesFrom(id).some(p => p.fromPort === port));
       });
     }
+    this._updatePanelGlow(id);
   }
 
   _rebuildMixerChannels(id, panel) {
@@ -1412,8 +1414,52 @@ class UIRenderer {
     const panel = document.createElement('div');
     panel.className = 'panel-box panel-generator panel-midi'; panel.id = `panel-${id}`;
     panel.style.setProperty('--ph', 55);
-    panel.innerHTML = `<span class="panel-title">ALL MIDI</span><div class="midi-panel-sym">\u266C</div>`;
+    panel.innerHTML = `<span class="panel-title">ALL MIDI\n+ QWERTY</span><div class="midi-panel-sym">\u266C</div>`;
     return panel;
+  }
+
+  _updatePanelGlow(id) {
+    if (!this.jackLighting) { this._clearPanelGlow(id); return; }
+    const panel = this.panelMap.get(id);
+    if (!panel) return;
+    // Only glow for audio/cv inputs (not note-in)
+    const patchesIn = this.registry.patchesTo(id).filter(p => p.signalType !== 'note');
+    if (patchesIn.length === 0) { this._clearPanelGlow(id); return; }
+    const hue = MODULE_TYPE_DEFS[this.registry.modules.get(patchesIn[0].fromId)?.type]?.hue ?? 200;
+    panel.dataset.glowH = hue;
+    this._applyPanelGlow(panel, hue, 0.16);
+  }
+
+  _applyPanelGlow(panel, hue, alpha) {
+    panel.style.boxShadow = `0 4px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 26px 2px hsla(${hue},78%,62%,${alpha})`;
+  }
+
+  _clearPanelGlow(id) {
+    const panel = this.panelMap.get(id);
+    if (!panel) return;
+    panel.style.boxShadow = '';
+    delete panel.dataset.glowH;
+  }
+
+  beatPulse() {
+    if (!this.jackLighting) return;
+    for (const [id, panel] of this.panelMap) {
+      const h = panel?.dataset?.glowH;
+      if (!h) continue;
+      this._applyPanelGlow(panel, h, 0.42);
+      setTimeout(() => this._applyPanelGlow(panel, h, 0.16), 350);
+    }
+  }
+
+  setJackLighting(on) {
+    this.jackLighting = on;
+    if (!on) {
+      for (const [id, panel] of this.panelMap) {
+        if (panel) { panel.style.boxShadow = ''; delete panel.dataset.glowH; }
+      }
+    } else {
+      for (const [id] of this.panelMap) this._updatePanelGlow(id);
+    }
   }
 }
 
@@ -1437,14 +1483,23 @@ class PatchSystem {
   }
 
   _drawCompatibleJackHighlights(ctx2d, jacks) {
-    const { signalType, fromId } = this.patchCursor;
-    const pulse = 0.55 + Math.sin(performance.now() / 160) * 0.3;
+    const { signalType, fromId, fromPort, fromJack } = this.patchCursor;
+    const t = performance.now();
+    const pulse = 0.55 + Math.sin(t / 160) * 0.3;
     ctx2d.save();
+    // Highlight source jack with a solid-fill circle (all types)
+    ctx2d.beginPath();
+    ctx2d.arc(fromJack.x, fromJack.y, 9, 0, Math.PI * 2);
+    const srcCol = signalType === 'cv' ? `rgba(255,185,55,${pulse * 0.7})` : signalType === 'note' ? `rgba(255,210,80,${pulse * 0.6})` : `hsla(${fromJack.h},80%,65%,${pulse * 0.6})`;
+    ctx2d.strokeStyle = srcCol;
+    ctx2d.lineWidth = 1.5;
+    ctx2d.stroke();
+    // Highlight compatible destination input jacks with yellow boxes
     for (const j of jacks) {
-      if (j.isOut) continue; // only highlight input jacks as destinations
+      if (j.isOut) continue;
       const jSig = j.isNote ? 'note' : j.isCV ? 'cv' : 'audio';
       if (jSig !== signalType) continue;
-      if (j.modId === fromId) continue; // skip self
+      if (j.modId === fromId) continue;
       ctx2d.beginPath();
       ctx2d.rect(j.x - 11, j.y - 11, 22, 22);
       ctx2d.strokeStyle = `rgba(255,235,40,${pulse})`;
@@ -1504,18 +1559,8 @@ class PatchSystem {
       drawNoteCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, 0, 0);
     } else if (signalType === 'cv') {
       drawCvCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, 0, 0);
-      const pulse = 0.45 + Math.sin(performance.now()/200)*0.2;
-      ctx2d.save();
-      ctx2d.beginPath(); ctx2d.rect(fromJack.x-7, fromJack.y-7, 14, 14);
-      ctx2d.strokeStyle = `rgba(255,185,55,${pulse})`; ctx2d.lineWidth=1.2; ctx2d.stroke();
-      ctx2d.restore();
     } else {
       drawCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, fromJack.h, 0.55, 0, 0);
-      const pulse = 0.55 + Math.sin(performance.now()/200)*0.2;
-      ctx2d.save();
-      ctx2d.beginPath(); ctx2d.arc(fromJack.x, fromJack.y, 10, 0, Math.PI*2);
-      ctx2d.strokeStyle = `hsla(${fromJack.h},85%,72%,${pulse})`; ctx2d.lineWidth=1.5; ctx2d.stroke();
-      ctx2d.restore();
     }
   }
 
@@ -1720,11 +1765,10 @@ class ShopSystem {
       const allRow = document.createElement('div');
       allRow.className = 'shop-item shop-gen-row';
       allRow.innerHTML = `
-        <div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♬ ALL MIDI</div>
-        <div class="shop-item-desc">Unified signal from all connected devices</div>
+        <div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">\u266C ALL MIDI + QWERTY</div>
+        <div class="shop-item-desc">Routes all MIDI and keyboard input</div>
         <div class="shop-item-footer">
-          <span class="shop-item-price">FREE</span>
-          <button class="gen-toggle-btn ${allDeployed ? 'gen-deployed' : ''}"
+          <button class="shop-buy-btn gen-toggle-btn ${allDeployed ? 'gen-deployed' : ''}"
             data-gen="midi-all" data-deployed="${allDeployed}">
             ${allDeployed ? 'DEPLOYED' : 'ADD'}
           </button>
@@ -1745,11 +1789,10 @@ class ShopSystem {
           const row = document.createElement('div');
           row.className = 'shop-item shop-gen-row';
           row.innerHTML = `
-            <div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♩ ${dev.name}</div>
+            <div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">\u2669 ${dev.name}</div>
             <div class="shop-item-desc">Per-device MIDI generator</div>
             <div class="shop-item-footer">
-              <span class="shop-item-price">FREE</span>
-              <button class="gen-toggle-btn ${deployed ? 'gen-deployed' : ''}"
+              <button class="shop-buy-btn gen-toggle-btn ${deployed ? 'gen-deployed' : ''}"
                 data-gen="midi-in" data-device-id="${devId}" data-device-name="${dev.name}"
                 data-mod-id="${devMod?.id || ''}" data-deployed="${deployed}">
                 ${deployed ? 'DEPLOYED' : 'ADD'}

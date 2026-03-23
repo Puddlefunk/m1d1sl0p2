@@ -86,6 +86,7 @@ let midiDevices = new Map();      // id → { id, name } — connected devices, 
 
 let _wrongPenaltyGiven = false;   // once per challenge
 let _bonusExtPCs       = new Set(); // extension PCs set at triggerSuccess
+let _lastGlobalStep    = -1;      // bar-beat pulse tracking
 let _bonusPentPCs      = new Set(); // pentatonic PCs set at triggerSuccess
 let _bonusExtGiven     = false;
 let _bonusPentGiven    = false;
@@ -1806,6 +1807,15 @@ function animate() {
       if (now >= ph.audioTime) uiRenderer?.setSeqPlayhead(seqId, ph.step, ph.row);
     }
   }
+  // Bar-beat pulse for jack glow
+  (function() {
+    const gs = audioGraph.transport?._globalStep ?? 0;
+    const playing = audioGraph.transport?.playing;
+    if (playing && gs !== _lastGlobalStep) {
+      _lastGlobalStep = gs;
+      if (gs % 16 === 0) uiRenderer?.beatPulse();
+    }
+  })();
   // Patch overlay — drawn on top-z canvas so cables/jacks appear above panels
   patchCtx.clearRect(0,0,patchCanvas.width,patchCanvas.height);
   if (showModules) { patchSystem?.draw(patchCtx); drawAudioOut(); }
@@ -2192,7 +2202,7 @@ function dispatchCommand(v) {
   const ms   = _dm ? Math.min(45, parseInt(_dm[2])) * 1000 : 6000;
 
   if (base==='help') { consolePrint('COMMANDS (prefix - to run):\n  rules     — how to play\n  reset     — reset options\n  visuals   — visual toggles\n  controls  — button controls\n  cheats    — cheat codes\n  mp        — multiplayer status\n\nplain text sends as chat when connected'); return; }
-  if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  burn        — trigger fractal burn clear\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  keys        — toggle on-screen keyboard\n  mods        — toggle synth modules\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  fxon        — enable all effects\n  fxoff       — disable all effects'); return; }
+  if (base==='visuals') { consolePrint('VISUALS:\n  flash       — trigger phosphor flash\n  burn        — trigger fractal burn clear\n  streak      — trigger streak flare\n  labels      — flash note names on nodes\n  fol <n>     — scale flower of life (e.g. fol 0.8)\n  keys        — toggle on-screen keyboard\n  mods        — toggle synth modules\n  bg          — toggle flower background\n  nodes       — toggle flower nodes\n  lightning   — toggle lightning bolts\n  ripples     — toggle flower ripples\n  rings       — toggle note-on particle rings\n  polygon     — toggle chord polygon\n  centerglow  — toggle center glow\n  hintnotes   — toggle hint note markers\n  screenrip   — toggle full-screen chord ripples\n  jacks       — jack glow lighting\n  fxon        — enable all effects\n  fxoff       — disable all effects'); return; }
   if (base==='cheats') { consolePrint('CHEATS:\n  idkfa   — +5000 pts\n  idclip  — next level\n  iddqd   — max level + unlock shop'); return; }
   if (base==='controls') { consolePrint('CONTROLS:\n  makebutton <cmd>   — add a quick-access button\n  removebutton <cmd> — remove a button'); return; }
   if (base==='rules') { consolePrint('HOW TO PLAY:\n  1. Press PLAY and pick a key/scale\n  2. Watch the chord name — that\'s your challenge\n  3. Play those notes on keyboard or MIDI\n  4. Score points → level up → buy synth modules\n  5. Patch cables between modules to shape your sound'); return; }
@@ -2261,6 +2271,7 @@ function dispatchCommand(v) {
   if (base==='screenrip')  { tog(showScreenRipples,  v => showScreenRipples = v,   'screen ripples'); return; }
   if (base==='keys') { _toggleKeys(); consolePrint(`keyboard: ${showKeyboard ? 'ON' : 'OFF'}`, ms); return; }
   if (base==='mods') { _toggleMods(); consolePrint(`modules: ${showModules ? 'ON' : 'OFF'}`, ms); return; }
+  if (base==='jacks') { FX.jackLighting = !FX.jackLighting; uiRenderer?.setJackLighting(FX.jackLighting); consolePrint(`jack lighting: ${FX.jackLighting ? 'ON' : 'OFF'}`, ms); saveState(); return; }
   if (base==='fxon')  { Object.keys(FX).forEach(k => FX[k] = true);  consolePrint('all effects ON', ms);  return; }
   if (base==='fxoff') { Object.keys(FX).forEach(k => FX[k] = false); consolePrint('all effects OFF', ms); return; }
   if (base.startsWith('fol ')) {
@@ -2795,6 +2806,7 @@ function _syncModeToggles() {
   document.getElementById('opt-audible')?.classList.toggle('on', audibleChallenges);
   document.getElementById('opt-midiclock')?.classList.toggle('active', useMidiClock);
   bpmDisplayEl?.classList.toggle('ext-active', useMidiClock);
+  uiRenderer?.setJackLighting(FX.jackLighting);
 }
 
 document.querySelectorAll('.mode-toggle[data-fx]').forEach(btn => {
@@ -3067,6 +3079,7 @@ const FX = {
   hintNotes:     true,
   keyGuides:     true,
   screenRipples: true,
+  jackLighting:  true,
 };
 
 // Convenience getters (keep existing read sites working)
