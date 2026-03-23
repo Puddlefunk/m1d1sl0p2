@@ -2244,7 +2244,7 @@ function dispatchCommand(v) {
     shopBtnEl.classList.remove('locked'); _unlockEarMode();
     playLevelUpSound(); consolePrint('GOD MODE — max level, shop + ear training unlocked', ms); saveState(); return;
   }
-  if (base==='-000') { score+=99999; scoreValEl.textContent=score.toLocaleString(); shopBtnEl.classList.remove('locked'); shopSystem?.render(score); saveState(); return; }
+  if (base==='000') { score+=99999; scoreValEl.textContent=score.toLocaleString(); shopBtnEl.classList.remove('locked'); shopSystem?.render(score); saveState(); return; }
   const tog = (flag, setter, name) => { setter(!flag); consolePrint(`${name}: ${!flag ? 'ON' : 'OFF'}`, ms); };
   if (base==='bg')         { tog(showFlowerBg,       v => showFlowerBg = v,        'flower background'); return; }
   if (base==='nodes')      { tog(showFlowerNodes,    v => showFlowerNodes = v,     'flower nodes'); return; }
