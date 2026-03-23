@@ -163,6 +163,8 @@ class UIRenderer {
     if (type === 'drum-kick')    return this._createDrumKickPanel(id, params);
     if (type === 'drum-snare')   return this._createDrumSnarePanel(id, params);
     if (type === 'sidechain')    return this._createSidechainPanel(id, params);
+    if (type === 'midi-in')      return this._createMidiInPanel(id, params);
+    if (type === 'midi-all')     return this._createMidiAllPanel(id, params);
     return null;
   }
 
@@ -551,8 +553,10 @@ class UIRenderer {
       <span class="panel-title">MIXER</span>
       <span class="mix-edge-label mix-edge-label-top">RETURN</span>
       <div class="mix-returns-row" id="mix-returns-${id}"></div>
-      <div class="mix-body" id="mix-body-${id}"></div>
-      <div class="mix-snd-ctrl" id="mix-snd-ctrl-${id}"></div>
+      <div class="mix-main-row">
+        <div class="mix-snd-ctrl" id="mix-snd-ctrl-${id}"></div>
+        <div class="mix-body" id="mix-body-${id}"></div>
+      </div>
       <div class="mix-sends-row" id="mix-sends-${id}"></div>
       <span class="mix-edge-label mix-edge-label-bot">SEND</span>
     `;
@@ -564,6 +568,15 @@ class UIRenderer {
     if (!mod) return;
     const def = MODULE_TYPE_DEFS[mod.type];
     if (!def) return;
+    // Sidechain jacks are rendered inline in _createSidechainPanel — just sync plugged state
+    if (mod.type === 'sidechain') {
+      for (const port of (def.fixedInputPorts ?? [])) {
+        const j = panel.querySelector(`.port-jack.port-in[data-port="${port}"]`);
+        if (j) j.classList.toggle('plugged', this.registry.patchesTo(id).some(p => p.toPort === port));
+      }
+      this._syncOutputJack(id, panel, def);
+      return;
+    }
 
     // ── Mixer: delegate input/send/return handling ───────────────
     if (mod.type === 'mixer') {
@@ -872,7 +885,7 @@ class UIRenderer {
 
   _initDrag(panel) {
     panel.addEventListener('mousedown', () => { panel.style.zIndex = ++this.panelTopZ; }, true);
-    const handle = panel.querySelector(':scope > .panel-title');
+    const handle = panel.querySelector('.panel-title');
     if (!handle) return;
     handle.addEventListener('mousedown', e => {
       if (e.button !== 0) return;
@@ -1343,7 +1356,17 @@ class UIRenderer {
          <span class="val" data-val="${p}">${pd.format(params[p] ?? 0)}</span>
        </div>`
     ).join('');
-    panel.innerHTML = `<span class="panel-title">${def.label}</span><div class="synth-hgroup">${knobs}</div>`;
+    // Build trigger note options
+    const noteOpts = '<option value="-1">ANY</option>' +
+      Array.from({length:128}, (_,i) => `<option value="${i}">${midiToName(i)}</option>`).join('');
+    const trigVal = params.triggerNote ?? -1;
+    panel.innerHTML = `<span class="panel-title">${def.label}</span><div class="synth-hgroup">${knobs}</div>
+      <div class="drum-trig-row"><label>TRIG</label>
+        <select class="drum-trig-sel" data-module="${id}">${noteOpts}</select></div>`;
+    panel.querySelector('.drum-trig-sel').value = trigVal;
+    panel.querySelector('.drum-trig-sel').addEventListener('change', e => {
+      this.registry.setParam(id, 'triggerNote', parseInt(e.target.value));
+    });
     this._initKnobs(panel, id);
     requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
     return panel;
@@ -1364,9 +1387,32 @@ class UIRenderer {
          <span class="val" data-val="${p}">${pd.format(params[p] ?? 0)}</span>
        </div>`
     ).join('');
-    panel.innerHTML = `<span class="panel-title">DUCK</span><div class="synth-hgroup">${knobs}</div>`;
+    // Explicit labeled jack row: IN (audio to duck) and KEY (trigger signal)
+    panel.innerHTML = `<span class="panel-title">DUCK</span>
+      <div class="sc-jack-row">
+        <div class="sc-jack-cell"><div class="port-jack port-in" data-module="${id}" data-port="in-0"></div><label>IN</label></div>
+        <div class="sc-jack-cell"><div class="port-jack port-in" data-module="${id}" data-port="key"></div><label>KEY</label></div>
+      </div>
+      <div class="synth-hgroup">${knobs}</div>`;
     this._initKnobs(panel, id);
     requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
+    return panel;
+  }
+
+  _createMidiInPanel(id, params) {
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-generator'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', 55);
+    const name = params.deviceName || 'MIDI IN';
+    panel.innerHTML = `<span class="panel-title">♩ ${name}</span>`;
+    return panel;
+  }
+
+  _createMidiAllPanel(id, params) {
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-generator'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', 55);
+    panel.innerHTML = `<span class="panel-title">♬ ALL MIDI</span>`;
     return panel;
   }
 }
@@ -1597,12 +1643,54 @@ class ShopSystem {
   render(score) {
     this.balEl.textContent = score.toLocaleString()+' pts';
     this.itemsEl.innerHTML = '';
+
+    // ── Generators tab: live MIDI device list at top ────────────
+    if (this.activeTab === 'generators') {
+      const section = document.createElement('div');
+      section.className = 'shop-section-label';
+      section.textContent = 'MIDI INPUTS';
+      this.itemsEl.appendChild(section);
+
+      // midi-all singleton
+      const allMod = registry.modules.get('midi-all-0');
+      if (allMod) {
+        const row = document.createElement('div');
+        row.className = 'shop-item shop-gen-row';
+        row.innerHTML = `<div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♬ ALL MIDI</div>
+          <div class="shop-item-desc">Unified signal from all connected devices. Always active.</div>`;
+        this.itemsEl.appendChild(row);
+      }
+
+      // per-device midi-in modules
+      const midiIns = [...registry.modules.values()].filter(m => m.type === 'midi-in');
+      if (midiIns.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'shop-gen-empty';
+        empty.textContent = 'No MIDI devices connected';
+        this.itemsEl.appendChild(empty);
+      } else {
+        for (const mod of midiIns) {
+          const row = document.createElement('div');
+          row.className = 'shop-item shop-gen-row';
+          row.innerHTML = `<div class="shop-item-name" style="color:hsla(55,70%,68%,0.9)">♩ ${mod.params.deviceName || 'MIDI IN'}</div>
+            <div class="shop-item-desc">Module ID: ${mod.id}</div>`;
+          this.itemsEl.appendChild(row);
+        }
+      }
+
+      const seqSection = document.createElement('div');
+      seqSection.className = 'shop-section-label';
+      seqSection.textContent = 'SEQUENCERS';
+      this.itemsEl.appendChild(seqSection);
+    }
+
     for (const def of SHOP_DEFS) {
       const cat = MODULE_TYPE_DEFS[def.type]?.category;
-      if (this.activeTab === 'voices'   && cat !== 'osc') continue;
-      if (this.activeTab === 'fx'       && (cat === 'osc' || cat === 'cv' || cat === 'sequencer' || cat === 'drum')) continue;
-      if (this.activeTab === 'cv'       && cat !== 'cv') continue;
-      if (this.activeTab === 'drums'    && cat !== 'sequencer' && cat !== 'drum') continue;
+      if (this.activeTab === 'voices'     && cat !== 'osc') continue;
+      if (this.activeTab === 'fx'         && (cat === 'osc' || cat === 'cv' || cat === 'sequencer' || cat === 'drum' || cat === 'generator')) continue;
+      if (this.activeTab === 'cv'         && cat !== 'cv') continue;
+      if (this.activeTab === 'drums'      && cat !== 'drum') continue;
+      if (this.activeTab === 'generators' && cat !== 'sequencer') continue;
       const price = GAME_CONFIG.modulePrices[def.type] ?? 0;
       const afford = score >= price;
       const qty = this.registry.countByType(def.type);

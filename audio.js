@@ -1156,6 +1156,18 @@ class AudioGraph {
   }
 
   // ── DRUM VOICES ──────────────────────────────────────────────
+  // Fire all drum voices patched from a generator module, respecting triggerNote
+  _fireMidiNoteToDrums(sourceModuleId, note, vel, time) {
+    const patches = this.registry.patchesFrom(sourceModuleId).filter(p => p.fromPort === 'note-out' && p.signalType === 'note');
+    for (const patch of patches) {
+      const drumMod = this.registry.modules.get(patch.toId);
+      if (!drumMod) continue;
+      const triggerNote = drumMod.params?.triggerNote ?? -1;
+      if (triggerNote >= 0 && triggerNote !== note) continue;
+      this._fireDrumVoice(patch.toId, drumMod.type, vel, time);
+    }
+  }
+
   _fireDrumVoice(voiceId, type, vel, time) {
     if (!this.ctx) return;
     if (type === 'drum-hat')   this._fireHat(voiceId, vel, time);

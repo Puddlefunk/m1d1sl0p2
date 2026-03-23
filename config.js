@@ -70,6 +70,7 @@ const GAME_CONFIG = {
     'seq-cv': 2400, 'seq-drum': 1800,
     'drum-hat': 1200, 'drum-kick': 1400, 'drum-snare': 1300,
     'sidechain': 2000,
+    'midi-in': 0, 'midi-all': 0,
   },
 };
 
@@ -283,7 +284,7 @@ const MODULE_TYPE_DEFS = {
   'drum-hat': {
     label:'HAT', category:'drum', hue:45, outputPort:'audio', fixedNoteInputPort:'note-in',
     dynamicInputs: false,
-    defaultParams: { level:0.7, attack:0.28, decay:0.55 },
+    defaultParams: { level:0.7, attack:0.28, decay:0.55, triggerNote:-1 },
     paramDefs: {
       level:  { min:0, max:1, label:'LVL', format:v=>Math.round(v*100)+'%' },
       attack: { min:0, max:1, label:'ATK', format:v=>formatMs(sliderToDrumDecay(v)*0.1) },
@@ -293,7 +294,7 @@ const MODULE_TYPE_DEFS = {
   'drum-kick': {
     label:'KICK', category:'drum', hue:355, outputPort:'audio', fixedNoteInputPort:'note-in',
     dynamicInputs: false,
-    defaultParams: { level:0.8, tune:0.3, decay:0.55, punch:0.6 },
+    defaultParams: { level:0.8, tune:0.3, decay:0.55, punch:0.6, triggerNote:-1 },
     paramDefs: {
       level: { min:0, max:1, label:'LVL',  format:v=>Math.round(v*100)+'%' },
       tune:  { min:0, max:1, label:'TUNE', format:v=>Math.round(sliderToKickFreq(v))+'Hz' },
@@ -304,13 +305,26 @@ const MODULE_TYPE_DEFS = {
   'drum-snare': {
     label:'SNR', category:'drum', hue:50, outputPort:'audio', fixedNoteInputPort:'note-in',
     dynamicInputs: false,
-    defaultParams: { level:0.7, snap:0.5, tone:0.3, decay:0.4 },
+    defaultParams: { level:0.7, snap:0.5, tone:0.3, decay:0.4, triggerNote:-1 },
     paramDefs: {
       level: { min:0, max:1, label:'LVL',  format:v=>Math.round(v*100)+'%' },
       snap:  { min:0, max:1, label:'SNAP', format:v=>Math.round(v*100)+'%' },
       tone:  { min:0, max:1, label:'TONE', format:v=>Math.round(100+v*200)+'Hz' },
       decay: { min:0, max:1, label:'DEC',  format:v=>formatMs(sliderToDrumDecay(v)) },
     }
+  },
+  // ── MIDI Generators ──────────────────────────────────────────
+  'midi-in': {
+    label:'♩', category:'generator', hue:55, noteOutputPort:'note-out',
+    dynamicInputs: false,
+    defaultParams: { deviceId:'', deviceName:'MIDI IN' },
+    paramDefs: {}
+  },
+  'midi-all': {
+    label:'♬', category:'generator', hue:55, noteOutputPort:'note-out',
+    dynamicInputs: false,
+    defaultParams: {},
+    paramDefs: {}
   },
   // ── Effects ──────────────────────────────────────────────────
   'sidechain': {

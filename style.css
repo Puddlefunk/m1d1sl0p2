@@ -32,8 +32,11 @@ canvas { display: block; }
 #clock-bpm-val { font-size: 14px; color: rgba(255,255,255,.82); letter-spacing: .02em; }
 .clock-bpm-unit { font-size: 9px; color: rgba(255,255,255,.32); letter-spacing: .06em; }
 
+.clock-divider { width: 1px; height: 14px; background: rgba(255,255,255,.12); flex-shrink: 0; }
+#clock-panel .key-selector select {
+  font-size: 10px; padding: 2px 4px; height: 22px;
+}
 /* ── Multiplayer UI ── */
-#mp-ui { position: fixed; top: 98px; left: 12px; display: flex; align-items: center; gap: 7px; z-index: 10; }
 
 .mp-dot {
   width: 7px; height: 7px; border-radius: 50%;
@@ -109,7 +112,6 @@ canvas { display: block; }
   display: flex; gap: 6px; align-items: center; z-index: 10;
 }
 /* Visual group separators */
-#game-controls .key-selector,
 #game-controls #mode-panel-btn,
 #game-controls #midi-learn-btn { margin-left: 10px; }
 #bpm-display {
@@ -356,6 +358,32 @@ body.mp-connected .mode-disconnect-btn { display: block; }
   background: linear-gradient(180deg, rgba(240,210,50,0.08) 0%, rgba(200,170,30,0.03) 30%, rgba(0,0,0,0) 60%), rgba(10,9,4,0.38);
   border-color: rgba(240,210,50,0.2);
 }
+/* Generator modules — warm gold tint */
+.panel-box.panel-generator {
+  background: linear-gradient(180deg, rgba(255,200,60,0.07) 0%, rgba(200,160,20,0.03) 30%, rgba(0,0,0,0) 60%), rgba(10,9,4,0.38);
+  border-color: rgba(255,200,60,0.2);
+}
+/* Sidechain labeled jack row */
+.sc-jack-row { display: flex; gap: 10px; margin-bottom: 8px; }
+.sc-jack-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.sc-jack-cell label { font-size: 8px; letter-spacing: 1px; color: rgba(255,255,255,.35); }
+/* Drum trigger note selector */
+.drum-trig-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.drum-trig-row label { font-size: 8px; letter-spacing: 1px; color: rgba(255,255,255,.35); flex-shrink: 0; }
+.drum-trig-sel {
+  font-family: monospace; font-size: 10px; background: rgba(0,0,0,.4);
+  border: 1px solid rgba(255,255,255,.15); color: rgba(255,255,255,.7);
+  border-radius: 3px; padding: 1px 3px; width: 100%; cursor: pointer;
+}
+.drum-trig-sel:focus { outline: none; border-color: rgba(255,255,255,.3); }
+/* Shop section labels */
+.shop-section-label {
+  font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.3);
+  padding: 8px 2px 4px; border-bottom: 1px solid rgba(255,255,255,.07);
+  margin-bottom: 4px;
+}
+.shop-gen-empty { font-size: 10px; color: rgba(255,255,255,.25); padding: 6px 2px; font-style: italic; }
+.shop-gen-row { opacity: 0.8; }
 .panel-box.unlocked { opacity: 1; transform: translateY(0); pointer-events: all; }
 .panel-box > .panel-title {
   display: block; font-size: 10px; letter-spacing: 3px;
@@ -390,7 +418,8 @@ body.mp-connected .mode-disconnect-btn { display: block; }
 .fader-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .fader-cell .mix-label { font-size: 7px; letter-spacing: 0; margin-top: 1px; color: rgba(255,255,255,.42); }
 .fader-cell .val { font-size: 7px; letter-spacing: 0; color: rgba(255,255,255,.52); }
-.mix-body { display: flex; gap: 6px; align-items: flex-end; padding: 4px 0; }
+.mix-main-row { display: flex; align-items: flex-end; gap: 6px; padding: 4px 0; }
+.mix-body { display: flex; gap: 6px; align-items: flex-end; }
 /* Mixer top/bottom edge jack rows — positioned on the panel border so jacks sit half-outside the backdrop */
 .mix-returns-row { position: absolute; top: 0; left: 0; right: 0; height: 14px; display: flex; gap: 6px; justify-content: center; pointer-events: none; }
 .mix-sends-row   { position: absolute; bottom: 0; left: 0; right: 0; height: 14px; display: flex; gap: 6px; justify-content: center; pointer-events: none; }
@@ -405,8 +434,8 @@ body.mp-connected .mode-disconnect-btn { display: block; }
 .mix-edge-label-top { top: 5px; }
 .mix-edge-label-bot { bottom: 5px; }
 /* Send level controls row — one knob per active send */
-.mix-snd-ctrl { display: flex; gap: 8px; justify-content: center; padding: 4px 0 2px; flex-wrap: wrap; }
-.mix-snd-ctrl:empty { display: none; }
+.mix-snd-ctrl { display: flex; flex-direction: column; gap: 6px; align-items: center; padding: 0 4px 0 0; border-right: 1px solid rgba(255,255,255,.08); min-width: 30px; }
+.mix-snd-ctrl:empty { display: none; min-width: 0; border: none; padding: 0; }
 .send-ctrl { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .send-ctrl .mix-label { font-size: 7px; letter-spacing: 0; color: rgba(255,255,255,.38); }
 

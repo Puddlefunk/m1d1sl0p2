@@ -1,0 +1,450 @@
+ ---
+  Architecture Specification for "MIDIslop 2: the sloppening" (stylised M1D1SL0P2) Synth Building and Chord Training Game
+
+  ---
+  Part 1 — System Understanding
+
+  Core concept. A browser-based music game where the player performs chord challenges on a MIDI keyboard (or QWERTY). Accuracy is
+  rewarded with score and new synthesiser modules. The synthesiser is built from the unlocked modules and functions as a real
+  polyphonic instrument the player also uses to perform.
+
+  Subsystems and their current locations (all in one <script type="module"> block, ~3000 lines):
+
+  ┌─────────────────┬──────────────────────────────────────────────────────────────────┬────────────────────────────────────────┐
+  │    Subsystem    │                           What it does                           │              Key globals               │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ MIDI / input    │ Web MIDI API noteOn/noteOff/CC, QWERTY piano, on-screen piano    │ activeNotes, onNoteOn, onNoteOff       │
+  │                 │ mouse events                                                     │                                        │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Detection       │ Chord.detect on active pitch-classes; drives game and label      │ detectedLabel, runDetection            │
+  │                 │ display                                                          │                                        │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Game loop       │ State machine: practice → awaiting-key → play;                   │ gameMode, gamePhase, currentChallenge, │
+  │                 │ hint/play/success/fail phases; deck; timer                       │  challengeDeck                         │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Scoring         │ Points, streak, level thresholds, level-up unlock table          │ score, streak, levelIdx, LEVELS,       │
+  │                 │                                                                  │ PARAM_UNLOCKS                          │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Audio engine    │ Web Audio graph: 5 OSCs + noise → per-voice gains → ADSR env →   │ audioCtx, voices, sp, playNote,        │
+  │                 │ VCF (×2) → dry bus + reverb                                      │ stopNote                               │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Patch routing   │ oscRouting map drives getRoutingMult which zeroes unpatched      │ oscRouting, syncOscGains,              │
+  │                 │ gains                                                            │ handlePatchClick                       │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ UI panels       │ Pre-rendered HTML panels, hidden until unlockParam adds          │ .panel-box, unlockParam, unlockPanel   │
+  │                 │ .unlocked class                                                  │                                        │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Knob/fader      │ Hidden <input type=range> as source of truth; canvas             │ reDrawKnob, drawKnob, drawFader        │
+  │ controls        │ knobs/faders drawn from their values                             │                                        │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Shop            │ SHOP_MODULES array; isOwned() queries DOM; buyModule calls       │ SHOP_MODULES, renderShop, buyModule    │
+  │                 │ unlockParam                                                      │                                        │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ Visualiser      │ Canvas: circles of fifths positions, particles, hint rings,      │ animate, drawCables, jackRegistry      │
+  │                 │ keyboard, patch cables                                           │                                        │
+  ├─────────────────┼──────────────────────────────────────────────────────────────────┼────────────────────────────────────────┤
+  │ MIDI Learn      │ Three-step arm → click knob → turn encoder flow; midiCCMap maps  │ midiLearnMode, midiLearnParam,         │
+  │                 │ CC→param                                                         │ midiCCMap                              │
+  └─────────────────┴──────────────────────────────────────────────────────────────────┴────────────────────────────────────────┘
+
+  Data flow for a single challenge:
+
+  MIDI noteOn → onNoteOn → playNote (audio) + runDetection (theory)
+  runDetection → Chord.detect → checkSuccess (if gamePhase=play)
+  checkSuccess satisfied → triggerSuccess → addScore → level check → unlockParam
+  unlockParam → DOM classList add 'unlocked' → panel appears
+
+  Data flow for a patch change:
+
+  canvas click → handlePatchClick → hit jack in jackRegistry
+  jack found (type=out) → oscRouting[wf] = null → patchCursor set
+  second click (type=in) → oscRouting[wf] = dest → syncOscGains
+  syncOscGains → voices.forEach → mixGains[idx].gain = sp.mixXxx * getRoutingMult(dest)
+
+  ---
+  Part 2 — Current Problems
+
+  P1. Single-instance architecture hardcoded into the DOM.
+  OSC panels (panel-osc-sine, etc.) are static HTML. The shop uses isOwned: () =>
+  document.getElementById('ctrl-osc-sine')?.classList.contains('unlocked') — ownership is read from the DOM, not from a data model.
+  You cannot spawn a second sine oscillator because there is no concept of an instance; there is only one element with that ID.
+
+  P2. Audio nodes and UI panels are created in two separate worlds.
+  playNote creates oscillators for every voice from the global sp object. The six waveform gains inside each voice (mixGains[0..4])
+  are derived at note-start time from sp.mixSine etc. and later updated via syncOscGains. The audio graph has no structural
+  representation — it is implicit in playNote's closure. When a second oscillator of the same type is needed, there is nowhere to put
+   its gain value in sp, no second panel ID to draw to, and no second set of mix gains in voices.
+
+  P3. oscRouting is a flat object keyed by waveform name.
+  { sine: 'vcf', saw: null, ... } only represents one connection per waveform, and the waveform names are hardcoded strings. Adding a
+   second sine would require sine2, which breaks syncOscGains, drawCables, the cable definitions array, and every place oscRouting is
+   iterated.
+
+  P4. Patch cables are drawn by drawCables iterating OSC_CABLE_DEFS.
+  This array is static HTML-IDs. Adding a new module requires adding entries here, to the DOM, to SHOP_MODULES, to sp, and to
+  playNote. These additions are spread across five separate places with no single point of truth.
+
+  P5. sp is a flat god-object.
+  All synth parameters live in one const sp = { ... }. There is no concept of "which oscillator instance does this parameter belong
+  to". sp.mixSine is meaningful only because there is exactly one sine oscillator, and unlockParam('osc-sine') knows to look at
+  ctrl-osc-sine. This collapses when instances become possible.
+
+  P6. Ownership logic lives in the DOM.
+  isOwned() methods query classList.contains('unlocked'). The shop, unlockParam, and cheatLevel all write ownership state via CSS
+  classes. There is no authoritative data-layer record of which modules are unlocked.
+
+  P7. jackRegistry is rebuilt every animation frame.
+  drawCables calls jackRegistry = [] and repopulates it on every rAF. Hit testing in handlePatchClick reads from this frame's
+  registry. This means the registry is valid only during the frame after it was last drawn — any async operation that queries it
+  between frames would see stale data. It also tightly couples hit testing to the draw pass.
+
+  P8. The ADSR envelope applies to all oscillators equally.
+  There is one envGain per voice, and it runs all waveforms through the same ADSR. There is no per-oscillator envelope, and no way to
+   give a second sine a different attack than the first without a new architecture.
+
+  P9. The UI panel <label> drag handle is also the semantic heading.
+  Panels use <label> both as a draggable handle (CSS cursor: grab) and as the module title. This is semantically mixed and makes it
+  harder to add click targets, context menus, or close buttons to panels.
+
+  P10. Difficulty parameters are partially centralised, partially scattered.
+  LEVELS is a good table, but PARAM_UNLOCKS is a separate flat object, and the score formula constants (100 base, timeBonus ceiling
+  100, streak bonus ×15 per hit) are inline in addScore. Balancing requires touching three different locations.
+
+  ---
+  Part 3 — Target Architecture
+
+  The rebuild should separate four concerns that are currently tangled: data model, audio graph, UI rendering, and game logic.
+  Communication between them should flow in one direction where possible.
+
+  GameEngine ──→ AudioGraph
+      │               ↑
+      ↓               │
+  ModuleRegistry ─────┘
+      │
+      ↓
+  UIRenderer ←── ModuleRegistry
+
+  3.1 ModuleRegistry
+
+  The central data model. Owns:
+  - The list of module instances (each with a unique ID, a type, and a params object).
+  - The patch graph (list of connections: { fromId, fromPort, toId, toPort }).
+  - Ownership state (which module types are purchased, how many of each).
+
+  The registry fires events (module-added, module-removed, patch-changed, param-changed) that the AudioGraph and UIRenderer subscribe
+   to independently.
+
+  class ModuleRegistry {
+    modules = new Map();  // id → { type, params, id }
+    patches = [];         // [{ fromId, fromPort, toId, toPort }]
+
+    addModule(type, params)  → id
+    removeModule(id)
+    setParam(id, key, value) → fires 'param-changed'
+    addPatch(from, to)       → fires 'patch-changed'
+    removePatch(from, to)    → fires 'patch-changed'
+    getPatchesFrom(id, port)
+    getPatchesTo(id, port)
+  }
+
+  3.2 AudioGraph
+
+  Maintains a live Web Audio node for each module instance. Listens to registry events:
+  - module-added → create nodes, store in nodeMap[id]
+  - module-removed → disconnect and garbage-collect nodes
+  - patch-changed → disconnect old connections, apply new ones
+
+  Each module type has a factory function that returns { inputs: { portName: AudioNode }, outputs: { portName: AudioNode } }. The
+  graph connects outputs[fromPort] to inputs[toPort] when a patch is registered.
+
+  const MODULE_FACTORIES = {
+    'osc-sine':  (ctx, params) → { outputs: { out: GainNode }, ... },
+    'osc-saw':   (ctx, params) → { ... },
+    'vcf':       (ctx, params) → { inputs: { in: BiquadFilter }, outputs: { out: BiquadFilter } },
+    'env':       (ctx, params) → { inputs: { in: GainNode }, outputs: { out: GainNode } },
+    'mix4':      (ctx, params) → { inputs: { ch1, ch2, ch3, ch4 }, outputs: { out: GainNode } },
+    // ...
+  };
+
+  Polyphony: each voice creates its own sub-graph per the current patch topology. The AudioGraph keeps a voicePool that clones the
+  node graph on noteOn and tears it down (with release tail) on noteOff.
+
+  3.3 UIRenderer
+
+  Responsible only for DOM and canvas. No audio knowledge. Listens to registry events:
+  - module-added → spawn a panel element, position it, register its knob handlers
+  - module-removed → remove the panel element
+  - param-changed → update the relevant knob canvas
+
+  Panel elements are created from a template per module type. Each panel has a unique DOM id derived from the registry instance id
+  (panel-${id}). Multiple instances of the same type get different ids (panel-osc-sine-0, panel-osc-sine-1).
+
+  3.4 PatchSystem
+
+  Manages the interactive patching UI. Maintains its own jackRegistry as a stable data structure (not rebuilt per frame). Jacks are
+  registered when panels are spawned and deregistered when panels are removed. On patch-changed events, it updates the jack occupied
+  state.
+
+  Cable drawing reads from jackRegistry and the patch graph — it does not mutate either.
+
+  3.5 GameEngine
+
+  Unchanged in principle. onNoteOn/Off → runDetection → checkSuccess → addScore → level check. Level-up triggers a
+  registry.addModule(type) call rather than directly calling unlockParam. This is the only coupling point between game logic and the
+  module system.
+
+  3.6 ShopSystem
+
+  Reads from SHOP_MODULE_DEFS (type definitions, not instances). Ownership = registry.countModules(type) > 0. Purchase =
+  registry.addModule(type, defaultParams). Prices and descriptions live in SHOP_MODULE_DEFS only. Multiple purchases of the same type
+   spawn multiple instances.
+
+  ---
+  Part 4 — Patch System Redesign
+
+  4.1 Graph model
+
+  A patch connection is a directed edge in the module graph:
+
+  { fromId: 'osc-sine-0', fromPort: 'out',
+    toId:   'vcf-0',      toPort:   'in' }
+
+  Each module type declares its port schema:
+
+  OSC_SINE.ports = {
+    inputs:  {},
+    outputs: { out: { type: 'audio', label: 'OUT' } }
+  }
+  VCF.ports = {
+    inputs:  { in: { type: 'audio', label: 'IN' } },
+    outputs: { out: { type: 'audio', label: 'OUT' } }
+  }
+  MIX4.ports = {
+    inputs:  { ch0: { type: 'audio' }, ch1: ..., ch2: ..., ch3: ... },
+    outputs: { out: { type: 'audio' } }
+  }
+
+  4.2 Connection rules
+
+  - Only audio→audio port pairs may be connected.
+  - An output port may connect to multiple input ports (fan-out).
+  - An input port accepts only one connection (fan-in = 1). Patching to an occupied input disconnects the existing cable first (same
+  behaviour as the current prototype).
+  - The ENV and FX modules are downstream-only. They are in the fixed signal chain after the VCF and cannot be patched around in
+  Phase 1. They can be drawn as semi-modular spine cables (decorative-only, as currently).
+
+  4.3 Jack registration
+
+  Each panel, when spawned by UIRenderer, calls patchSystem.registerJack(panelId, portName, type, el). The PatchSystem records the
+  DOM element and position, and rebuilds layout positions on panel drag. jackRegistry is therefore a persistent Map, not a per-frame
+  array.
+
+  4.4 Multiple instances
+
+  When the shop sells a second SINE OSC, the registry calls addModule('osc-sine', defaultParams) and returns id = 'osc-sine-1'.
+  UIRenderer spawns a new panel with id="panel-osc-sine-1". AudioGraph creates a second set of nodes for that id. PatchSystem
+  registers jacks for that panel. The second oscillator is a fully independent instance in all three systems.
+
+  The only shared resource is the VCF input jack. Since the VCF's in port has fan-in=1, connecting a second oscillator directly to
+  VCF disconnects the first. To mix two oscillators into the VCF, the player must own and use the MIX4 module (two OSC outputs → two
+  MIX4 channels → MIX4 out → VCF in). This naturally motivates purchasing the mixer.
+
+  4.5 Routing multiplier elimination
+
+  getRoutingMult exists because the current model has no clean way to express "unpatched = silent". In the new model, unpatched
+  oscillators simply have no Web Audio connection to the signal chain — their nodes exist but output is zero because nothing receives
+   it. getRoutingMult is removed entirely.
+
+  ---
+  Part 5 — Difficulty & Balancing System
+
+  All tunable game parameters should live in one configuration object, never inline as magic numbers.
+
+  const GAME_CONFIG = {
+    // Scoring
+    pointsBase:       100,   // base points per correct chord
+    timeBonusMax:     100,   // additional points for fast completion
+    streakBonusPerHit: 15,   // added per consecutive hit above 1
+
+    // Timer
+    timerPresets:     [3, 5, 10, 0],  // 0 = unlimited
+    timerDefault:     5,
+
+    // Level table (one entry per level)
+    levels: [
+      { n:1, label:'LEVEL 1',  maxDiff:1, hintMs:2200, scoreThreshold:0,     shopUnlock:false, paramUnlock: null         },
+      { n:2, label:'LEVEL 2',  maxDiff:1, hintMs:1800, scoreThreshold:400,   shopUnlock:false, paramUnlock: null         },
+      { n:3, label:'LEVEL 3',  maxDiff:2, hintMs:1600, scoreThreshold:900,   shopUnlock:false, paramUnlock: 'vcf'        },
+      // ...
+      { n:10,label:'LEVEL 10', maxDiff:5, hintMs:100,  scoreThreshold:12000, shopUnlock:true,  paramUnlock: 'glide'      },
+    ],
+
+    // Shop unlock level (derived: first level where shopUnlock=true)
+    // No magic number needed — computed at startup
+
+    // Chord pool difficulty weights
+    // diff 1 = major/minor I/IV/V, diff 2 = ii/iii/vi, diff 3 = dom7, diff 4 = maj7/min7
+    diffWeights: { 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0 },
+  };
+
+  addScore becomes:
+
+  function addScore() {
+    streak++;
+    const cfg = GAME_CONFIG;
+    const elapsed = performance.now() - playPhaseStart;
+    const timeBonus = challengeTimerSecs > 0
+      ? Math.round(cfg.timeBonusMax * Math.max(0, 1 - elapsed / (challengeTimerSecs * 1000)))
+      : cfg.timeBonusMax;
+    const points = cfg.pointsBase + timeBonus + (streak - 1) * cfg.streakBonusPerHit;
+    score += points;
+  }
+
+  The level table consolidates LEVELS and PARAM_UNLOCKS (currently separate). flashLevelUp just reads from the current level's
+  paramUnlock field. This makes the full difficulty curve auditable in one place.
+
+  Chord pool difficulty. Currently diff is hardcoded per chord in CHORD_POOL and per scale degree in buildKeyPool. For tuning,
+  extract a CHORD_DIFF_TABLE that maps { type, degree } → diffScore, allowing per-chord balancing without touching game logic.
+
+  ---
+  Part 6 — Rebuild Strategy
+
+  Guiding principle: the prototype already works and is fun. The rebuild should be a careful migration, not a rewrite from scratch.
+  Validate each stage against the running prototype.
+
+  Stage 1 — Extract ModuleRegistry (no audio or UI changes)
+
+  Create ModuleRegistry as a plain data class. Add a second representation of current state: populate it on load from the current
+  unlocked DOM state. Run the game as-is; registry is a silent passenger. Tests: registry state matches DOM state throughout a
+  session.
+
+  Stage 2 — Make shop and unlock system read/write registry
+
+  buyModule and unlockParam write to the registry. isOwned reads from the registry. DOM writes become listeners on registry events.
+  PARAM_UNLOCKS is folded into the level table. The DOM representation becomes a view of the registry, not the source of truth.
+
+  Stage 3 — Introduce ModuleFactory and AudioGraph class
+
+  Wrap the existing audio setup in the factory pattern. For the six existing module types, the factories just wire up what
+  ensureAudio and playNote already do. The AudioGraph class holds nodeMap and responds to module-added / patch-changed. The existing
+  oscRouting and syncOscGains are replaced by the graph's patch application logic.
+
+  Stage 4 — Make panels spawn from registry events
+
+  Remove static panel HTML. When a module-added event fires, UIRenderer calls a factory that creates a panel <div> with the correct
+  structure and appends it. initPanels still positions them; panels still drag. Validate: buying the SAW from the shop spawns a panel
+   identical to the original hardcoded one.
+
+  Stage 5 — Port-based jacks and multiple-instance support
+
+  Add port schemas to each module type. UIRenderer adds jack markers to each panel based on port schema. PatchSystem registers jacks
+  from panels (persistent registry, not per-frame). handlePatchClick uses the persistent registry. drawCables reads from
+  registry.patches + jackRegistry. Validate: all existing patches draw identically.
+
+  Stage 6 — Enable multiple instances
+
+  The shop lists module types with a quantity display. Buying a second SINE spawns a second instance. All prior stages handle this
+  naturally once panel spawning is instance-based. Validate: two sines play simultaneously; patching both through MIX4→VCF works;
+  removing one instance tears down its audio nodes correctly.
+
+  What to port vs rewrite:
+
+  ┌─────────────────────────────────────────┬─────────────────────────┬──────────────────────────────┐
+  │                                         │ Port (logic is correct) │ Rewrite (structure is wrong) │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Game state machine                      │ ✓                       │                              │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Chord detection (Tonal.js)              │ ✓                       │                              │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Score / streak / level table            │ ✓ (into GAME_CONFIG)    │                              │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Visualiser (particles, rings, keyboard) │ ✓                       │                              │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Knob/fader drawing                      │ ✓                       │                              │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ MIDI / QWERTY input                     │ ✓                       │                              │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Audio graph wiring                      │ partial                 │ oscRouting → port graph      │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ sp flat object                          │                         │ → per-instance params        │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ Static panel HTML                       │                         │ → dynamic spawning           │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ isOwned DOM queries                     │                         │ → registry reads             │
+  ├─────────────────────────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ jackRegistry per-frame array            │                         │ → persistent Map             │
+  └─────────────────────────────────────────┴─────────────────────────┴──────────────────────────────┘
+
+  File structure for the rebuild (still single-file is fine for Phase 1):
+
+  index.html
+    <style>  (unchanged)
+    <div id layout>  (game UI only; no static panels)
+    <script type="module">
+      import { Chord, Scale } from tonal
+      // --- Config ---
+      const GAME_CONFIG = { ... }
+      const MODULE_TYPE_DEFS = { ... }   // port schemas, default params, factory fns
+      const SHOP_MODULE_DEFS = [ ... ]   // price, description, type ref
+
+      // --- Core systems ---
+      const registry    = new ModuleRegistry()
+      const audioGraph  = new AudioGraph(registry)
+      const uiRenderer  = new UIRenderer(registry)
+      const patchSystem = new PatchSystem(registry, uiRenderer)
+      const shopSystem  = new ShopSystem(registry)
+      const gameEngine  = new GameEngine(registry, GAME_CONFIG)
+
+      // --- Input ---
+      initMIDI()
+      initKeyboard()
+      initMousePiano()
+
+      // --- Bootstrap ---
+      registry.addModule('osc-sine', MODULE_TYPE_DEFS['osc-sine'].defaults)
+      animate()
+    </script>
+
+  Validation checkpoints per stage:
+  - S1: registry.modules.size === count of .panel-box.unlocked elements at all times.
+  - S2: Buying SAW decrements score, registry shows osc-saw owned, panel appears.
+  - S3: Playing a chord sounds identical to the prototype.
+  - S4: All bought panels appear in correct positions after a full shop run.
+  - S5: Click-drag patching works; cables draw identically to current version.
+  - S6: Two sines produce stereo-spread detune; removing one is silent and leaves the other intact.
+
+  ---
+  That covers all six parts. The key insight is that Stages 1–3 are pure refactors with no visible change to the user — they de-risk
+  the dynamic spawning and multiple-instance work in Stages 4–6. Let me know where you want to start.
+
+✻ Worked for 5m 52s
+
+> im moving the old index.html to the folder /prototype for your reference. did you read the patch specs in spec docs?
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● I hadn't seen this — just read it now. Good news: it aligns well with the architecture spec I produced, with a few notable
+  additions/differences to account for:
+
+  What the patch spec adds that my Part 4 didn't cover:
+
+  1. Mod signal type — explicit "audio" | "mod" typed connections. My spec only modelled audio connections. The spec requires mod →
+  param routing (e.g. LFO → filter cutoff), not just mod → mod inputs.
+  2. ParamValue with modulation sources — { base: number, mods: [{ sourceNode, output, amount }] }. This replaces the current
+  hardwired LFO→filter connection with a proper modulation matrix. Each param can have multiple mod sources summed.
+  3. Env node has a gate input — currently the envelope is triggered implicitly by playNote. The spec models it as a module with a
+  gate input, making it a proper graph node rather than hardcoded voice scaffolding.
+  4. Topological sort before processing — the spec calls out explicit dependency ordering. My architecture assumed Web Audio's native
+   graph handles this; the spec implies there may be a JS-side processing loop as well (relevant for mod signals, which Web Audio
+  doesn't handle natively at control rate).
+  5. Serialisable patch (JSON) — persistence is in scope from the start.
+  6. Difficulty system controls node count and allowed modulation complexity — not just which param gets unlocked at each level.
+
+  One divergence to flag: the spec's MODULE_DEFS uses a generic oscillator type with a waveform param, while the current prototype
+  and my Part 3 used per-waveform types (osc-sine, osc-saw, etc.) as separate shop items. These two models are compatible — a single
+  oscillator node type with a selectable waveform param is cleaner; the shop then sells oscillator instances and the waveform is just
+   a param. 
+
+(user says: make both, keep the legacy modules as is and also build one that has the selectable parameter i reckon)
+
+also can we save progress in a cookie or something? maybe add a console command "reset" to let the user clear score and start playing from scratch but otherwise keep their progress between sessions.

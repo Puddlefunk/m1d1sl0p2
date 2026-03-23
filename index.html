@@ -18,10 +18,24 @@
   <div id="clock-bpm-wrap" title="Drag up/down to change BPM">
     <span id="clock-bpm-val">120</span><span class="clock-bpm-unit"> bpm</span>
   </div>
-</div>
-
-<div id="mp-ui">
-  <span id="mp-dot" class="mp-dot mp-solo"></span>
+  <div class="clock-divider"></div>
+  <div class="key-selector">
+    <select id="key-root">
+      <option>C</option><option>C#</option><option>D</option><option>D#</option>
+      <option>E</option><option>F</option><option>F#</option><option>G</option>
+      <option>G#</option><option>A</option><option>A#</option><option>B</option>
+    </select>
+    <select id="key-scale">
+      <option value="major">MAJ</option>
+      <option value="minor">MIN</option>
+      <option value="dorian">DOR</option>
+      <option value="mixolydian">MIX</option>
+      <option value="phrygian">PHR</option>
+      <option value="lydian">LYD</option>
+    </select>
+  </div>
+  <div class="clock-divider"></div>
+  <span id="mp-dot" class="mp-dot mp-solo" title="Multiplayer status"></span>
 </div>
 
 <div id="mp-overlay">
@@ -30,21 +44,6 @@
 
 <div id="game-controls">
   <button id="mode-btn">PLAY</button>
-  <div class="key-selector">
-    <select id="key-root">
-      <option>C</option><option>C#</option><option>D</option><option>D#</option>
-      <option>E</option><option>F</option><option>F#</option><option>G</option>
-      <option>G#</option><option>A</option><option>A#</option><option>B</option>
-    </select>
-    <select id="key-scale">
-      <option value="major">MAJOR</option>
-      <option value="minor">MINOR</option>
-      <option value="dorian">DORIAN</option>
-      <option value="mixolydian">MIXO</option>
-      <option value="phrygian">PHRYG</option>
-      <option value="lydian">LYDIAN</option>
-    </select>
-  </div>
   <button id="mode-panel-btn">MENU</button>
   <button id="shop-btn" class="locked" title="Unlocks at Level 2">SHOP</button>
   <button id="midi-learn-btn" title="MIDI Learn: click, then click a knob, then turn an encoder">MIDI LEARN</button>
@@ -93,7 +92,7 @@
       </button>
     </div>
 
-    <div class="mode-section">
+      <div class="mode-section">
       <div class="mode-section-label">PARTNER</div>
       <div class="mode-partner-row">
         <span id="mode-mp-dot" class="mp-dot mp-solo"></span>
@@ -133,6 +132,11 @@
       <div class="mode-toggle-row">
         <span class="mode-toggle-label">AUDIBLE CHALLENGES</span>
         <button class="mode-toggle on" id="opt-audible"></button>
+      </div>
+      <div class="mode-toggle-row" style="align-items:center;">
+        <span class="mode-toggle-label">NODE SCALE</span>
+        <input type="range" id="opt-node-scale" min="0.4" max="3" step="0.05" value="1.6" style="flex:1;margin:0 8px;">
+        <span id="opt-node-scale-val" style="font-size:10px;color:rgba(255,255,255,.5);min-width:2.5ch;">1.6</span>
       </div>
       <div class="mode-toggle-row">
         <span class="mode-toggle-label">EXTERNAL MIDI CLOCK</span>
@@ -189,6 +193,7 @@
     <button class="shop-tab" data-tab="fx">FX</button>
     <button class="shop-tab" data-tab="cv">CV</button>
     <button class="shop-tab" data-tab="drums">DRUMS</button>
+    <button class="shop-tab" data-tab="generators">GEN</button>
   </div>
   <div id="shop-items"></div>
 </div>
