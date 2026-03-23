@@ -1883,20 +1883,21 @@ function runDetection() {
   } else if (!label) { detectedLabel=''; labelFade=0; }
 }
 
-function onNoteOn(note, velocity, midiDeviceId = null, fromMidi = false) {
-  // If note comes from MIDI hardware and midi-all-0 has been sold, don't route it
-  if (fromMidi && !registry.modules.has('midi-all-0')) return;
+function onNoteOn(note, velocity, midiDeviceId = null) {
   audioGraph.ensure();
   activeNotes.set(note,{ startTime:performance.now() });
   if (showParticleRings) spawnRing(note,velocity);
   onNoteOnFlower(note);
-  // Use midi-all-0 as voice owner if it has note-out patches to oscs
+  // All input (QWERTY, on-screen, MIDI) routes through midi-all-0's patch graph.
+  // Only play osc if midi-all-0 is patched to one — this ensures consistent sound
+  // across input types and silences all input when the generator is disconnected.
   const midiAllOscPatches = registry.patchesFrom('midi-all-0').filter(p =>
     p.fromPort === 'note-out' && p.signalType === 'note' &&
     MODULE_TYPE_DEFS[registry.modules.get(p.toId)?.type]?.category === 'osc'
   );
-  const midiSeqId = midiAllOscPatches.length > 0 ? 'midi-all-0' : null;
-  audioGraph.playNote(note, velocity, null, midiSeqId);
+  if (midiAllOscPatches.length > 0) {
+    audioGraph.playNote(note, velocity, null, 'midi-all-0');
+  }
   // Route MIDI note to drums patched from generators
   if (audioGraph.ctx) {
     const t = audioGraph.ctx.currentTime;
@@ -1924,14 +1925,10 @@ function onNoteOn(note, velocity, midiDeviceId = null, fromMidi = false) {
   }
 }
 
-function onNoteOff(note, fromMidi = false) {
-  if (fromMidi && !registry.modules.has('midi-all-0')) return;
-  // Match the seqId used in onNoteOn for clean voice release
-  const _stopMidiAllOscPatches = registry.patchesFrom('midi-all-0').filter(p =>
-    p.fromPort === 'note-out' && p.signalType === 'note' &&
-    MODULE_TYPE_DEFS[registry.modules.get(p.toId)?.type]?.category === 'osc'
-  );
-  audioGraph.stopNote(note, null, _stopMidiAllOscPatches.length > 0 ? 'midi-all-0' : null);
+function onNoteOff(note) {
+  // Stop midi-all-0 owned voices (primary path) + any null-seqId voices (safety for edge cases)
+  audioGraph.stopNote(note, null, 'midi-all-0');
+  audioGraph.stopNote(note, null, null);
   onNoteOffFlower(note);
   activeNotes.delete(note);
   multiplayer.send('NOTE_OFF', { midi: note });
@@ -3025,8 +3022,8 @@ if (!navigator.requestMIDIAccess) {
       }
       const isOn=(cmd&0xf0)===0x90&&velocity>0;
       const isOff=(cmd&0xf0)===0x80||((cmd&0xf0)===0x90&&velocity===0);
-      if (isOn)  onNoteOn(note, velocity, e.target?.id, true);
-      if (isOff) onNoteOff(note, true);
+      if (isOn)  onNoteOn(note, velocity, e.target?.id);
+      if (isOff) onNoteOff(note);
     }
     function connectAll() {
       // Sync midiDevices map with currently connected devices (don't auto-add to registry)

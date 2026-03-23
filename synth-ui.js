@@ -642,16 +642,16 @@ class UIRenderer {
         panel.appendChild(noteOutList);
       }
       noteOutList.innerHTML = '';
-      // One jack per existing patch from this note-out port
-      this.registry.patchesFrom(id).filter(p => p.fromPort === port).forEach(p => {
+      // Empty jack first (always available for new connections)
+      const emptyRow = document.createElement('li'); emptyRow.className = 'port-out-row';
+      emptyRow.innerHTML = `<div class="port-jack port-out port-note" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
+      noteOutList.appendChild(emptyRow);
+      // Plugged jacks below — one per existing patch
+      this.registry.patchesFrom(id).filter(p => p.fromPort === port).forEach(() => {
         const row = document.createElement('li'); row.className = 'port-out-row';
         row.innerHTML = `<div class="port-jack port-out port-note plugged" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
         noteOutList.appendChild(row);
       });
-      // One empty jack for new connections
-      const emptyRow = document.createElement('li'); emptyRow.className = 'port-out-row';
-      emptyRow.innerHTML = `<div class="port-jack port-out port-note" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
-      noteOutList.appendChild(emptyRow);
     }
 
     // ── Note input jack ─────────────────────────────────────────────
@@ -1401,18 +1401,18 @@ class UIRenderer {
 
   _createMidiInPanel(id, params) {
     const panel = document.createElement('div');
-    panel.className = 'panel-box panel-generator'; panel.id = `panel-${id}`;
+    panel.className = 'panel-box panel-generator panel-midi'; panel.id = `panel-${id}`;
     panel.style.setProperty('--ph', 55);
-    const name = params.deviceName || 'MIDI IN';
-    panel.innerHTML = `<span class="panel-title">♩ ${name}</span>`;
+    const name = (params.deviceName || 'MIDI IN').replace(/</g,'&lt;');
+    panel.innerHTML = `<span class="panel-title">${name}</span><div class="midi-panel-sym">\u2669</div>`;
     return panel;
   }
 
   _createMidiAllPanel(id, params) {
     const panel = document.createElement('div');
-    panel.className = 'panel-box panel-generator'; panel.id = `panel-${id}`;
+    panel.className = 'panel-box panel-generator panel-midi'; panel.id = `panel-${id}`;
     panel.style.setProperty('--ph', 55);
-    panel.innerHTML = `<span class="panel-title">♬ ALL MIDI</span>`;
+    panel.innerHTML = `<span class="panel-title">ALL MIDI</span><div class="midi-panel-sym">\u266C</div>`;
     return panel;
   }
 }
@@ -1431,8 +1431,27 @@ class PatchSystem {
   draw(ctx2d) {
     const jacks = this._gatherJacks();
     this._drawAllCables(ctx2d, jacks);
+    if (this.patchCursor) this._drawCompatibleJackHighlights(ctx2d, jacks);
     this._drawCursor(ctx2d);
     jacks.forEach(j => j.isCV ? drawCvJack(ctx2d, j.x, j.y, j.plugged, j.alpha) : j.isNote ? drawNoteJack(ctx2d, j.x, j.y, j.plugged, j.alpha) : drawJack(ctx2d, j.x, j.y, j.h, j.plugged, j.alpha));
+  }
+
+  _drawCompatibleJackHighlights(ctx2d, jacks) {
+    const { signalType, fromId } = this.patchCursor;
+    const pulse = 0.55 + Math.sin(performance.now() / 160) * 0.3;
+    ctx2d.save();
+    for (const j of jacks) {
+      if (j.isOut) continue; // only highlight input jacks as destinations
+      const jSig = j.isNote ? 'note' : j.isCV ? 'cv' : 'audio';
+      if (jSig !== signalType) continue;
+      if (j.modId === fromId) continue; // skip self
+      ctx2d.beginPath();
+      ctx2d.rect(j.x - 11, j.y - 11, 22, 22);
+      ctx2d.strokeStyle = `rgba(255,235,40,${pulse})`;
+      ctx2d.lineWidth = 1.5;
+      ctx2d.stroke();
+    }
+    ctx2d.restore();
   }
 
   _gatherJacks() {
@@ -1603,7 +1622,7 @@ class ShopSystem {
     this.itemsEl  = document.getElementById('shop-items');
     this.balEl    = document.getElementById('shop-balance');
     this.shopBtn  = document.getElementById('shop-btn');
-    this.activeTab = 'voices';
+    this.activeTab = 'generators';
 
     document.getElementById('shop-close-btn').addEventListener('click', () => this.close());
     document.querySelectorAll('.shop-tab').forEach(tab => {
