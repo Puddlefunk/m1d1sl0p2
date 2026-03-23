@@ -3,12 +3,37 @@ body { background: #000; overflow: hidden; }
 canvas { display: block; }
 #pc { position:fixed; top:0; left:0; pointer-events:none; z-index:2; }
 
-#status { position: fixed; top: 14px; left: 20px; color: rgba(255,255,255,.35); font-family: monospace; font-size: 12px; z-index: 10; }
-#bpm    { position: fixed; top: 30px; left: 20px; color: rgba(255,255,255,.25); font-family: monospace; font-size: 12px; z-index: 10; cursor: pointer; transition: color .15s; user-select: none; }
+#status { position: fixed; top: 14px; left: 160px; color: rgba(255,255,255,.35); font-family: monospace; font-size: 12px; z-index: 10; }
+#bpm    { position: fixed; top: 78px; left: 12px; color: rgba(255,255,255,.25); font-family: monospace; font-size: 12px; z-index: 10; cursor: pointer; transition: color .15s; user-select: none; }
 #bpm:hover { color: rgba(255,255,255,.55); }
 
+/* ── Clock panel ── */
+#clock-panel {
+  position: fixed; top: 8px; left: 8px; z-index: 15;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px 5px 7px; border-radius: 6px;
+  background: linear-gradient(180deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,.02) 100%), rgba(12,12,16,.88);
+  border: 1px solid rgba(255,255,255,.13);
+  backdrop-filter: blur(18px) brightness(.72);
+  -webkit-backdrop-filter: blur(18px) brightness(.72);
+  box-shadow: 0 3px 16px rgba(0,0,0,.45);
+  font-family: monospace; font-size: 11px; user-select: none;
+}
+#clock-play-btn {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+  color: rgba(255,255,255,.7); cursor: pointer; border-radius: 3px;
+  padding: 2px 7px; font-size: 10px; line-height: 1.5; letter-spacing: .02em;
+}
+#clock-play-btn:hover { background: rgba(255,255,255,.16); color: rgba(255,255,255,.95); }
+#clock-play-btn.playing {
+  background: rgba(80,220,120,.18); border-color: rgba(80,220,120,.38); color: rgb(80,220,120);
+}
+#clock-bpm-wrap { cursor: ns-resize; display: flex; align-items: baseline; gap: 2px; }
+#clock-bpm-val { font-size: 14px; color: rgba(255,255,255,.82); letter-spacing: .02em; }
+.clock-bpm-unit { font-size: 9px; color: rgba(255,255,255,.32); letter-spacing: .06em; }
+
 /* ── Multiplayer UI ── */
-#mp-ui { position: fixed; top: 50px; left: 20px; display: flex; align-items: center; gap: 7px; z-index: 10; }
+#mp-ui { position: fixed; top: 98px; left: 12px; display: flex; align-items: center; gap: 7px; z-index: 10; }
 
 .mp-dot {
   width: 7px; height: 7px; border-radius: 50%;

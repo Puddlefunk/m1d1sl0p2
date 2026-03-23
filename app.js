@@ -324,6 +324,34 @@ function drawCvJack(c2d, x, y, plugged, alpha) {
   c2d.restore();
 }
 
+function drawNoteCable(c2d, sx, sy, ex, ey, px, py) {
+  const dist = Math.hypot(ex-sx, ey-sy);
+  const sag  = Math.max(12, Math.min(dist*0.22, 50));
+  const horiz = Math.abs(ex-sx) > Math.abs(ey-sy);
+  let cp1x, cp1y, cp2x, cp2y;
+  if (horiz) { cp1x=sx+(ex-sx)*0.25+px*0.4; cp1y=sy+sag+py*0.4; cp2x=sx+(ex-sx)*0.75+px*0.4; cp2y=ey+sag+py*0.4; }
+  else { const bow=Math.max(10,dist*0.14); cp1x=sx+bow+px*0.4; cp1y=sy+(ey-sy)*0.38+py*0.4; cp2x=ex+bow+px*0.4; cp2y=sy+(ey-sy)*0.62+py*0.4; }
+  c2d.save(); c2d.lineCap='round';
+  c2d.beginPath(); c2d.moveTo(sx,sy); c2d.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,ex,ey);
+  c2d.strokeStyle='rgba(255,200,80,0.15)'; c2d.lineWidth=4; c2d.stroke();
+  c2d.beginPath(); c2d.moveTo(sx,sy); c2d.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,ex,ey);
+  c2d.setLineDash([4,4]); c2d.strokeStyle='rgba(255,210,90,0.9)'; c2d.lineWidth=1.2; c2d.stroke();
+  c2d.setLineDash([]);
+  c2d.restore();
+}
+
+function drawNoteJack(c2d, x, y, plugged, alpha) {
+  const s = 5;
+  c2d.save();
+  // Diamond shape for note ports
+  c2d.beginPath(); c2d.moveTo(x, y-s); c2d.lineTo(x+s, y); c2d.lineTo(x, y+s); c2d.lineTo(x-s, y); c2d.closePath();
+  c2d.fillStyle=`rgba(14,12,8,${alpha*0.94})`; c2d.strokeStyle=`rgba(255,200,80,0.4)`; c2d.lineWidth=1; c2d.fill(); c2d.stroke();
+  const is = 2.8;
+  c2d.beginPath(); c2d.moveTo(x, y-is); c2d.lineTo(x+is, y); c2d.lineTo(x, y+is); c2d.lineTo(x-is, y); c2d.closePath();
+  c2d.fillStyle=plugged?`rgba(255,200,80,${alpha*0.8})`:`rgba(4,3,2,${alpha})`; c2d.fill();
+  c2d.restore();
+}
+
 function drawKnob(canvasEl, value01, focused) {
   if (!canvasEl) return;
   const kc=canvasEl.getContext('2d'), w=canvasEl.width, h=canvasEl.height, cx=w/2, cy=h/2, r=w*0.33;
@@ -567,6 +595,9 @@ class GameEngine {
     gameKeyPool  = buildKeyPool(root, scale) ?? CHORD_POOL;
     gameKeyLabel = `${root} ${scale}`;
     gameMode     = 'play';
+    // Update sequencer root key for key-relative pitch offsets
+    audioGraph.transport?.setRootKey(root);
+    uiRenderer?.updateSeqRootKey(root);
     challengeDeck = [];
     streakCount = 0; streakLevels = 0; idleTimeouts = 0;
     lockedOut = false; remoteLockedOut = false;
@@ -1038,11 +1069,13 @@ class GameEngine {
 // SECTION 13 — PERSISTENCE
 // ─────────────────────────────────────────────────────────────
 function saveState() {
+  const transMod = registry.modules.get('transport-0');
   const data = {
     score, levelIdx, streakCount, streakLevels,
     controlsBarPos, useMidiClock, audibleChallenges, internalBpm, internalBpmActive,
+    transportBpm: transMod?.params.bpm ?? 0.545,
     fx: { ...FX },
-    modules: [...registry.modules.values()].filter(m=>m.type!=='audio-out').map(m => ({ type:m.type, params:{...m.params} })),
+    modules: [...registry.modules.values()].filter(m=>m.type!=='audio-out'&&m.type!=='transport').map(m => ({ type:m.type, params:{...m.params} })),
     patches: registry.patches,
     panelPositions: [...uiRenderer.panelMap.entries()].map(([id,el]) => ({
       id, left: parseInt(el.style.left) || 0, top: parseInt(el.style.top) || 0,
@@ -1065,6 +1098,7 @@ function loadState() {
     if (data.audibleChallenges !== undefined) audibleChallenges = data.audibleChallenges;
     if (data.internalBpm) { internalBpm = data.internalBpm; internalBpmActive = data.internalBpmActive ?? false; }
     if (internalBpmActive) _setBpmText(`${internalBpm} bpm`);
+    if (data.transportBpm != null) registry.setParam('transport-0', 'bpm', data.transportBpm);
     if (data.fx) Object.assign(FX, data.fx);
     scoreValEl.textContent = score.toLocaleString();
     levelValEl.textContent = GAME_CONFIG.levels[levelIdx]?.label ?? 'LEVEL 1';
@@ -1078,7 +1112,7 @@ function loadState() {
     }
 
     if (data.modules?.length) {
-      data.modules.forEach(m => { if (m.type === 'audio-out') return; try { registry.addModule(m.type, m.params); } catch(e) {} });
+      data.modules.forEach(m => { if (m.type === 'audio-out' || m.type === 'transport') return; try { registry.addModule(m.type, m.params); } catch(e) {} });
       if (data.patches?.length) {
         data.patches.forEach(p => { try { registry.addPatch(p.fromId, p.fromPort, p.toId, p.toPort); } catch(e) {} });
       }
@@ -1758,6 +1792,13 @@ function animate() {
   drawParticles();
   if (showModules) drawSynthRipples();
   drawLabel();
+  // Seq playhead sync — rAF polls audio timestamps for frame-accurate UI
+  if (audioGraph?.ctx && audioGraph.seqPlayheads?.size) {
+    const now = audioGraph.ctx.currentTime;
+    for (const [seqId, ph] of audioGraph.seqPlayheads) {
+      if (now >= ph.audioTime) uiRenderer?.setSeqPlayhead(seqId, ph.step, ph.row);
+    }
+  }
   // Patch overlay — drawn on top-z canvas so cables/jacks appear above panels
   patchCtx.clearRect(0,0,patchCanvas.width,patchCanvas.height);
   if (showModules) { patchSystem?.draw(patchCtx); drawAudioOut(); }
@@ -1840,7 +1881,12 @@ function onNoteOn(note, velocity) {
   activeNotes.set(note,{ startTime:performance.now() });
   if (showParticleRings) spawnRing(note,velocity);
   onNoteOnFlower(note);
-  audioGraph.playNote(note,velocity);
+  audioGraph.playNote(note, velocity); // seqId=null → MIDI voice
+  // Record for guitar-hero challenge isolation
+  if (audioGraph.userNoteHistory) {
+    audioGraph.userNoteHistory.push({ midi: note, velocity, time: audioGraph.ctx?.currentTime ?? 0 });
+    if (audioGraph.userNoteHistory.length > 256) audioGraph.userNoteHistory.shift();
+  }
   multiplayer.send('NOTE_ON', { midi: note, velocity });
   runDetection(); refreshNoteDisplay();
   if (!multiplayer.isClient) {
@@ -1855,7 +1901,7 @@ function onNoteOn(note, velocity) {
 }
 
 function onNoteOff(note) {
-  audioGraph.stopNote(note);
+  audioGraph.stopNote(note, null, null); // MIDI voice (seqId=null)
   onNoteOffFlower(note);
   activeNotes.delete(note);
   multiplayer.send('NOTE_OFF', { midi: note });
@@ -1971,7 +2017,7 @@ document.addEventListener('mouseup', () => {
       const sr = shopEl.getBoundingClientRect();
       if (mouseX>=sr.left && mouseX<=sr.right && mouseY>=sr.top && mouseY<=sr.bottom) {
         const moduleId = panelDrag.panel.id.replace(/^panel-/, '');
-        if (moduleId !== 'audio-out-0' && registry.modules.has(moduleId)) {
+        if (moduleId !== 'audio-out-0' && moduleId !== 'transport-0' && registry.modules.has(moduleId)) {
           const modType = registry.modules.get(moduleId).type;
           const refund = Math.floor((GAME_CONFIG.modulePrices[modType] ?? 0) / 2);
           registry.removeModule(moduleId);
@@ -2130,7 +2176,7 @@ function dispatchCommand(v) {
   }
   if (base==='resetlevel') { levelIdx=0; levelValEl.textContent=GAME_CONFIG.levels[0].label; consolePrint('Level reset.', ms); saveState(); return; }
   if (base==='resetscore') { score=0; scoreValEl.textContent='0'; streakCount=0; streakLevels=0; streakValEl.style.opacity='0'; consolePrint('Score reset.', ms); saveState(); return; }
-  if (base==='resetmods') { for(const id of [...registry.modules.keys()])if(id!=='audio-out-0')registry.removeModule(id); const oid=registry.addModule('osc-sine'); registry.addPatch(oid,'audio','audio-out-0','in'); audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return; }
+  if (base==='resetmods') { for(const id of [...registry.modules.keys()])if(id!=='audio-out-0'&&id!=='transport-0')registry.removeModule(id); const oid=registry.addModule('osc-sine'); registry.addPatch(oid,'audio','audio-out-0','in'); audioGraph.ensure(); consolePrint('Modules reset.', ms); saveState(); return; }
   if (base==='idkfa') { score+=5000; scoreValEl.textContent=score.toLocaleString(); if(shopSystem?.el.classList.contains('open'))shopSystem.render(score); consolePrint('+5000 pts', ms); saveState(); return; }
   if (base==='flash') { triggerPhosphorFlash(); consolePrint('✦ flash', ms); return; }
   if (base==='burn')  { spawnBurnEffect(currentChallenge?.h ?? folPhosphorHue); consolePrint('✦ burn', ms); return; }
@@ -3060,8 +3106,9 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
 // Score HUD always visible
 hudEl.style.display = 'block';
 
-// Audio output is a permanent singleton — always pre-create before loadState
-registry.addModule('audio-out'); // → 'audio-out-0'
+// Permanent singletons — created before loadState so they exist on every session
+registry.addModule('audio-out');   // → 'audio-out-0'
+registry.addModule('transport');   // → 'transport-0'
 
 try { (JSON.parse(localStorage.getItem(BTNS_KEY)||'[]')).forEach(cmd=>{_customBtnCmds.push(cmd);_spawnBtnEl(cmd);}); } catch(e) {}
 const restored=loadState();
@@ -3076,6 +3123,63 @@ if (!restored||registry.getOscModules().length===0) {
   const firstOsc=registry.getOscModules()[0];
   if (firstOsc) registry.addPatch(firstOsc.id,'audio','audio-out-0','in');
 }
+
+// ── Clock panel wiring ─────────────────────────────────────────
+(function initClockPanel() {
+  const playBtn  = document.getElementById('clock-play-btn');
+  const bpmVal   = document.getElementById('clock-bpm-val');
+  const bpmWrap  = document.getElementById('clock-bpm-wrap');
+  if (!playBtn || !bpmVal || !bpmWrap) return;
+
+  // Sync BPM display from registry
+  function _updateClockDisplay() {
+    const mod = registry.modules.get('transport-0');
+    if (!mod) return;
+    const bpm = Math.round(sliderToBpm(mod.params.bpm ?? 0.545));
+    bpmVal.textContent = bpm;
+    playBtn.classList.toggle('playing', !!mod.params.playing);
+    playBtn.textContent = mod.params.playing ? '■' : '▶';
+  }
+
+  registry.addEventListener('param-changed', e => {
+    if (e.detail.id === 'transport-0') _updateClockDisplay();
+  });
+
+  // Play/stop
+  playBtn.addEventListener('click', () => {
+    audioGraph.ensure();
+    if (audioGraph.transport.playing) {
+      audioGraph.transport.stop();
+      registry.setParam('transport-0', 'playing', 0);
+    } else {
+      audioGraph.transport.start();
+      registry.setParam('transport-0', 'playing', 1);
+    }
+    saveState();
+  });
+
+  // BPM drag (vertical, up=faster)
+  let _bpmDragY = null, _bpmDragStart = null;
+  bpmWrap.addEventListener('mousedown', e => {
+    const mod = registry.modules.get('transport-0');
+    if (!mod) return;
+    _bpmDragY = e.clientY;
+    _bpmDragStart = mod.params.bpm ?? 0.545;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (_bpmDragY === null) return;
+    const dy = _bpmDragY - e.clientY; // up = positive
+    const delta = dy / 200; // 200px = full range
+    const nv = Math.max(0, Math.min(1, _bpmDragStart + delta));
+    registry.setParam('transport-0', 'bpm', nv);
+  });
+  document.addEventListener('mouseup', () => {
+    if (_bpmDragY !== null) { _bpmDragY = null; saveState(); }
+  });
+
+  _updateClockDisplay();
+})();
 
 animate();
 

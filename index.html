@@ -13,6 +13,13 @@
 <div id="status">connecting to MIDI...</div>
 <div id="bpm"></div>
 
+<div id="clock-panel">
+  <button id="clock-play-btn" title="Play/Stop transport">▶</button>
+  <div id="clock-bpm-wrap" title="Drag up/down to change BPM">
+    <span id="clock-bpm-val">120</span><span class="clock-bpm-unit"> bpm</span>
+  </div>
+</div>
+
 <div id="mp-ui">
   <span id="mp-dot" class="mp-dot mp-solo"></span>
 </div>
@@ -181,6 +188,7 @@
     <button class="shop-tab active" data-tab="voices">VOICES</button>
     <button class="shop-tab" data-tab="fx">FX</button>
     <button class="shop-tab" data-tab="cv">CV</button>
+    <button class="shop-tab" data-tab="drums">DRUMS</button>
   </div>
   <div id="shop-items"></div>
 </div>

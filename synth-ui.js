@@ -100,6 +100,33 @@ class UIRenderer {
     if (param === 'slope') this._updateWavePreview(panel, id, mod.type);
     if (param === 'width') this._updateWavePreview(panel, id, mod.type);
     if (param === 'waveform' || param === 'waveParam') this._updateWavePreview(panel, id, mod.type);
+    // Filter type toggle
+    if (mod.type === 'filter' && param === 'filterType') {
+      panel.querySelectorAll('.filter-type-btn').forEach(b => b.classList.toggle('active', b.dataset.ft === value));
+    }
+    // Seq cell updates
+    if (mod.type === 'seq-cv' && param === 'bars') {
+      this._rebuildSeqCvGrid(id, panel);
+      return;
+    }
+    if ((mod.type === 'seq-cv' || mod.type === 'seq-drum') && param === 'rate') {
+      panel.querySelectorAll('.seq-rate-btn').forEach(b => b.classList.toggle('active', b.dataset.rate === value));
+      return;
+    }
+    if (mod.type === 'seq-cv' && param.startsWith('step-')) {
+      this._refreshSeqCvGrid(id, panel);
+    }
+    if (mod.type === 'seq-drum' && param.startsWith('step-')) {
+      const parts = param.split('-'); // 'step-R-C'
+      const row = parseInt(parts[1]), col = parseInt(parts[2]);
+      const cell = panel.querySelector(`.drum-cell[data-seq="${id}"][data-row="${row}"][data-step="${col}"]`);
+      if (cell) cell.classList.toggle('active', !!value);
+    }
+    // Transport play button
+    if (mod.type === 'transport' && param === 'playing') {
+      const btn = panel.querySelector('.transport-play-btn');
+      if (btn) { btn.textContent = value ? '■ STOP' : '▶ PLAY'; btn.classList.toggle('playing', !!value); }
+    }
   }
 
   _onPatchChanged() {
@@ -107,6 +134,9 @@ class UIRenderer {
       const panel = this.panelMap.get(id);
       if (panel) this._renderModulePorts(id, panel);
     }
+    // Update static audio-out jack plugged state
+    const aoJack = document.getElementById('audio-out-jack');
+    if (aoJack) aoJack.classList.toggle('plugged', this.registry.patchesTo('audio-out-0').length > 0);
   }
 
   _createPanel(id, type, params) {
@@ -126,6 +156,13 @@ class UIRenderer {
     if (type === 'chord')        return this._createChordPanel(id, params);
     if (type === 'velocity')     return this._createVelocityPanel(id, params);
     if (type === 'mixer')        return this._createMixerPanel(id, params);
+    if (type === 'transport')    return null; // transport is now a fixed clock panel in the HTML
+    if (type === 'seq-cv')       return this._createSeqCvPanel(id, params);
+    if (type === 'seq-drum')     return this._createSeqDrumPanel(id, params);
+    if (type === 'drum-hat')     return this._createDrumHatPanel(id, params);
+    if (type === 'drum-kick')    return this._createDrumKickPanel(id, params);
+    if (type === 'drum-snare')   return this._createDrumSnarePanel(id, params);
+    if (type === 'sidechain')    return this._createSidechainPanel(id, params);
     return null;
   }
 
@@ -203,8 +240,14 @@ class UIRenderer {
     const panel = document.createElement('div');
     panel.className = 'panel-box panel-fx'; panel.id = `panel-${id}`;
     panel.style.setProperty('--ph', def.hue);
+    const ft = params.filterType ?? 'lp';
     panel.innerHTML = `
       <span class="panel-title">VCF</span>
+      <div class="filter-type-row" style="display:flex;gap:4px;margin-bottom:5px;">
+        <button class="filter-type-btn${ft==='lp'?' active':''}" data-ft="lp" data-module="${id}">LP</button>
+        <button class="filter-type-btn${ft==='hp'?' active':''}" data-ft="hp" data-module="${id}">HP</button>
+        <button class="filter-type-btn${ft==='bp'?' active':''}" data-ft="bp" data-module="${id}">BP</button>
+      </div>
       <div class="synth-hgroup">
         <div class="synth-control">
           <label>CUTOFF</label>
@@ -218,6 +261,13 @@ class UIRenderer {
         </div>
       </div>
     `;
+    panel.querySelectorAll('.filter-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        panel.querySelectorAll('.filter-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        registry.setParam(id, 'filterType', btn.dataset.ft);
+      });
+    });
     this._initKnobs(panel, id);
     requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
     return panel;
@@ -552,6 +602,59 @@ class UIRenderer {
       inJack.classList.toggle('plugged', this.registry.patchesTo(id).some(p => p.toPort === port));
     }
 
+    // ── Fixed multiple input ports (sidechain: ['in-0','key']) ──────
+    if (def.fixedInputPorts) {
+      for (const port of def.fixedInputPorts) {
+        let inJack = panel.querySelector(`.port-jack.port-in[data-module="${id}"][data-port="${port}"]`);
+        if (!inJack) {
+          inJack = document.createElement('div');
+          inJack.className = 'port-jack port-in';
+          inJack.dataset.module = id;
+          inJack.dataset.port = port;
+          // Label the key port visually
+          if (port === 'key') inJack.title = 'KEY';
+          panel.appendChild(inJack);
+        }
+        inJack.classList.toggle('plugged', this.registry.patchesTo(id).some(p => p.toPort === port));
+      }
+    }
+
+    // ── Note output jacks (dynamic fan-out list) ────────────────────
+    if (def.noteOutputPort) {
+      const port = def.noteOutputPort;
+      let noteOutList = panel.querySelector(`#note-out-ports-${id}`);
+      if (!noteOutList) {
+        noteOutList = document.createElement('ul');
+        noteOutList.className = 'ports-out-list'; noteOutList.id = `note-out-ports-${id}`;
+        panel.appendChild(noteOutList);
+      }
+      noteOutList.innerHTML = '';
+      // One jack per existing patch from this note-out port
+      this.registry.patchesFrom(id).filter(p => p.fromPort === port).forEach(p => {
+        const row = document.createElement('li'); row.className = 'port-out-row';
+        row.innerHTML = `<div class="port-jack port-out port-note plugged" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
+        noteOutList.appendChild(row);
+      });
+      // One empty jack for new connections
+      const emptyRow = document.createElement('li'); emptyRow.className = 'port-out-row';
+      emptyRow.innerHTML = `<div class="port-jack port-out port-note" data-module="${id}" data-port="${port}" title="NOTE OUT"></div>`;
+      noteOutList.appendChild(emptyRow);
+    }
+
+    // ── Note input jack ─────────────────────────────────────────────
+    if (def.fixedNoteInputPort) {
+      const port = def.fixedNoteInputPort;
+      let noteIn = panel.querySelector(`.port-jack.port-in.port-note[data-module="${id}"][data-port="${port}"]`);
+      if (!noteIn) {
+        noteIn = document.createElement('div');
+        noteIn.className = 'port-jack port-in port-note';
+        noteIn.dataset.module = id; noteIn.dataset.port = port;
+        noteIn.title = 'NOTE IN';
+        panel.appendChild(noteIn);
+      }
+      noteIn.classList.toggle('plugged', this.registry.patchesTo(id).some(p => p.toPort === port));
+    }
+
     // ── Output jack (create if absent, always update plugged state) ─
     if (def.outputPort) {
       let outJack = panel.querySelector(`.port-jack.port-out[data-module="${id}"][data-port="${def.outputPort}"]`);
@@ -756,10 +859,11 @@ class UIRenderer {
     const h = panel.offsetHeight || 180;
     const W = window.innerWidth;
     const cat = MODULE_TYPE_DEFS[type]?.category;
-    // Signal flow left→right: CV(Q1) | Voice/osc(Q2) | Effects/processor(Q3) | Shop(Q4)
+    // Signal flow left→right: CV(Q1) | Voice/osc(Q2) | Effects/processor(Q3) | Seq/Drum(lower half)
     const zone = cat === 'cv'                              ? { min: 0,        max: W * 0.25 }
                : cat === 'osc'                             ? { min: W * 0.25, max: W * 0.50 }
                : (cat === 'processor' || cat === 'utility')? { min: W * 0.50, max: W * 0.75 }
+               : (cat === 'sequencer' || cat === 'drum')   ? { min: W * 0.20, max: W * 0.80 }
                : null; // sink/unknown — no preference
     const pos = findClearSpot(w, h, zone);
     panel.style.left = pos.left + 'px';
@@ -811,6 +915,460 @@ class UIRenderer {
   }
 
   getPanel(id) { return this.panelMap.get(id); }
+
+  // Called by animate() loop via audioGraph.seqPlayheads
+  setSeqPlayhead(id, step, row) {
+    const panel = this.panelMap.get(id);
+    if (!panel) return;
+    const mod = this.registry.modules.get(id);
+    if (!mod) return;
+    panel.querySelectorAll('.seq-cell.playhead, .drum-cell.playhead').forEach(c => c.classList.remove('playhead'));
+    if (mod.type === 'seq-cv') {
+      panel.querySelectorAll(`.seq-cell[data-step="${step}"]`).forEach(c => c.classList.add('playhead'));
+    } else if (mod.type === 'seq-drum') {
+      panel.querySelectorAll(`.drum-cell[data-step="${step}"]`).forEach(c => c.classList.add('playhead'));
+    }
+  }
+
+  updateSeqRootKey(noteNameOrPc) {
+    // Root key changed: seq-cv grids highlight root row — already done via CSS class root-row (row 12 always)
+    // If we had row labels showing note names, we'd update them here.
+  }
+
+  _refreshSeqCvGrid(id, panel) {
+    const mod = this.registry.modules.get(id);
+    if (!mod) return;
+    panel.querySelectorAll('.seq-cell').forEach(cell => {
+      const step     = parseInt(cell.dataset.step);
+      const row      = parseInt(cell.dataset.row);
+      const activeRow = mod.params[`step-${step}-note`] ?? 12;
+      const vel       = mod.params[`step-${step}-vel`]  ?? 0;
+      cell.className = 'seq-cell';
+      if (row === 12) cell.classList.add('root-row');
+      if (activeRow === row && vel > 0) cell.classList.add(`vel-${vel}`);
+    });
+  }
+
+  _injectSeqCss() {
+    if (document.getElementById('seq-grid-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'seq-grid-styles';
+    style.textContent = `
+      .seq-grid { display:grid; gap:1px; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.1); user-select:none; }
+      .seq-cv-grid  { grid-template-columns:repeat(var(--seq-cols,16),1fr); }
+      .seq-drum-grid{ grid-template-columns:repeat(16,1fr); width:256px; }
+      .seq-cell  { width:15px; height:9px; background:rgba(255,255,255,0.05); cursor:pointer; border-radius:1px; box-sizing:border-box; }
+      .seq-cell.vel-1 { background:hsla(var(--ph,180),65%,45%,0.55); }
+      .seq-cell.vel-2 { background:hsla(var(--ph,180),80%,58%,0.88); }
+      .seq-cell.vel-3 { background:hsla(var(--ph,180),90%,74%,1); }
+      .seq-cell.root-row { border-top:1px solid rgba(255,255,255,0.22); }
+      .seq-cell.playhead,.drum-cell.playhead { outline:1px solid rgba(255,255,255,0.85); outline-offset:-1px; }
+      .drum-cell { width:15px; height:14px; background:rgba(255,255,255,0.05); cursor:pointer; border-radius:1px; box-sizing:border-box; }
+      .drum-cell.active { background:hsla(var(--ph,300),70%,55%,0.88); }
+      .seq-panel { width:max-content; min-width:180px; }
+      .seq-grid-wrap { overflow:hidden; }
+      .seq-grid-wrap.collapsed { display:none; }
+      .seq-collapse-btn { background:none; border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.5); padding:1px 5px; cursor:pointer; border-radius:2px; font-size:9px; line-height:1.4; }
+      .seq-collapse-btn:hover { color:rgba(255,255,255,0.9); border-color:rgba(255,255,255,0.35); }
+      .seq-bars-btn { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.6); padding:1px 5px; cursor:pointer; border-radius:2px; font-size:9px; letter-spacing:0.04em; }
+      .seq-bars-btn:hover { background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.9); }
+      .seq-beat-dot { width:15px; height:6px; display:flex; align-items:center; justify-content:center; }
+      .seq-beat-dot.beat, .seq-beat-dot.bar { gap:2px; }
+      .seq-beat-dot.beat::after { content:''; display:block; width:3px; height:3px; border-radius:50%; background:rgba(255,255,255,0.5); }
+      .seq-beat-dot.bar::before { content:''; display:block; width:3px; height:3px; border-radius:50%; background:rgba(255,255,255,0.5); }
+      .seq-beat-dot.bar::after  { content:''; display:block; width:3px; height:3px; border-radius:50%; background:rgba(255,255,255,0.5); }
+      .seq-rate-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px; }
+      .seq-rate-btn { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.13); color:rgba(255,255,255,0.5); padding:2px 0; cursor:pointer; border-radius:2px; font-size:8px; letter-spacing:0.03em; text-align:center; }
+      .seq-rate-btn:hover { background:rgba(255,255,255,0.14); color:rgba(255,255,255,0.85); }
+      .seq-rate-btn.active { background:rgba(255,255,255,0.2); color:rgba(255,255,255,0.95); border-color:rgba(255,255,255,0.32); }
+      .transport-play-btn { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.18); color:rgba(255,255,255,0.8); padding:3px 10px; cursor:pointer; border-radius:2px; font-size:10px; letter-spacing:0.05em; }
+      .transport-play-btn:hover { background:rgba(255,255,255,0.18); }
+      .transport-play-btn.playing { background:rgba(80,220,120,0.2); border-color:rgba(80,220,120,0.4); color:rgb(80,220,120); }
+      .filter-type-btn { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.6); padding:2px 7px; cursor:pointer; border-radius:2px; font-size:9px; letter-spacing:0.06em; }
+      .filter-type-btn.active { background:rgba(255,255,255,0.22); color:rgba(255,255,255,0.95); border-color:rgba(255,255,255,0.35); }
+      .port-note { border-radius:0; width:12px; height:12px; background:rgba(255,200,80,0.25); border:1px solid rgba(255,200,80,0.55); }
+      .port-note.plugged { background:rgba(255,200,80,0.75); }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // ── New Panel Methods ─────────────────────────────────────────────
+
+  _createTransportPanel(id, params) {
+    this._injectSeqCss();
+    const def = MODULE_TYPE_DEFS['transport'];
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-fx'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', def.hue);
+    const bpmVal = params.bpm ?? 0.545;
+    panel.innerHTML = `
+      <span class="panel-title">CLOCK</span>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <button class="transport-play-btn" data-module="${id}">▶ PLAY</button>
+      </div>
+      <div class="synth-hgroup">
+        <div class="synth-control">
+          <label>BPM</label>
+          <canvas class="knob-canvas" data-module="${id}" data-param="bpm" width="38" height="38"></canvas>
+          <span class="val" data-val="bpm">${def.paramDefs.bpm.format(bpmVal)}</span>
+        </div>
+        <div class="synth-control">
+          <label>DIV</label>
+          <div class="rate-btns" data-module="${id}" style="display:flex;flex-direction:column;gap:2px;">
+            ${[4,8,16,32].map(r=>`<button class="filter-type-btn${params.rate===r?' active':''}" data-rate="${r}" style="font-size:8px;padding:1px 4px;">${r}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+    // Play button (audioGraph is the global from app.js)
+    panel.querySelector('.transport-play-btn').addEventListener('click', () => {
+      if (typeof audioGraph === 'undefined' || !audioGraph.transport) return;
+      audioGraph.ensure();
+      if (audioGraph.transport.playing) { audioGraph.transport.stop(); registry.setParam(id, 'playing', 0); }
+      else { audioGraph.transport.start(); registry.setParam(id, 'playing', 1); }
+    });
+    // Rate buttons
+    panel.querySelectorAll('[data-rate]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        panel.querySelectorAll('[data-rate]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const idx = [4,8,16,32].indexOf(parseInt(btn.dataset.rate));
+        registry.setParam(id, 'rate', idx / 3);
+        if (typeof audioGraph !== 'undefined' && audioGraph.transport) audioGraph.transport.rateDivision = parseInt(btn.dataset.rate);
+      });
+    });
+    this._initKnobs(panel, id);
+    requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
+    return panel;
+  }
+
+  _createSeqCvPanel(id, params) {
+    this._injectSeqCss();
+    const def = MODULE_TYPE_DEFS['seq-cv'];
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-fx seq-panel'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', def.hue);
+
+    const bars    = params.bars ?? 1;
+    const curRate = params.rate ?? '16';
+    const rates   = [['4','4TH'],['8','8TH'],['d8','D8TH'],['t8','T8TH'],['16','16TH'],['32','32ND']];
+
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
+        <span class="panel-title" style="margin-bottom:0;flex:1;">SEQ</span>
+        <button class="seq-collapse-btn" title="Show/hide grid">▶</button>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:6px;">
+        <div class="synth-control" style="flex:0 0 auto;">
+          <label>GATE</label>
+          <canvas class="knob-canvas" data-module="${id}" data-param="gate" width="28" height="28"></canvas>
+          <span class="val" data-val="gate">${def.paramDefs.gate.format(params.gate ?? 0.374)}</span>
+        </div>
+        <div style="flex:1;">
+          <div style="font-size:8px;color:rgba(255,255,255,0.35);letter-spacing:0.06em;margin-bottom:2px;">RATE</div>
+          <div class="seq-rate-grid">
+            ${rates.map(([r,l])=>`<button class="seq-rate-btn${curRate===r?' active':''}" data-rate="${r}">${l}</button>`).join('')}
+          </div>
+          <button class="seq-bars-btn" style="margin-top:4px;width:100%;" title="Click to cycle bars">BARS: ${bars}</button>
+        </div>
+      </div>
+      <div class="seq-grid-wrap collapsed" id="seq-wrap-${id}">
+        <div class="seq-grid seq-cv-grid" id="seq-grid-${id}" style="--seq-cols:${16*bars};width:${16*bars*16}px;"></div>
+      </div>
+    `;
+
+    this._buildSeqCvCells(id, panel, params, bars);
+    this._attachSeqCvHandlers(id, panel);
+
+    // Collapse button
+    const collapseBtn = panel.querySelector('.seq-collapse-btn');
+    collapseBtn.addEventListener('click', () => {
+      const wrap = panel.querySelector(`#seq-wrap-${id}`);
+      const isCollapsed = wrap.classList.contains('collapsed');
+      wrap.classList.toggle('collapsed', !isCollapsed);
+      collapseBtn.textContent = isCollapsed ? '▼' : '▶';
+      if (isCollapsed) panel.style.zIndex = this.panelTopZ++;
+    });
+
+    // Bars button
+    panel.querySelector('.seq-bars-btn').addEventListener('click', () => {
+      const mod = this.registry.modules.get(id);
+      if (!mod) return;
+      const cur = mod.params.bars ?? 1;
+      const next = cur >= 4 ? 1 : cur * 2;
+      this.registry.setParam(id, 'bars', next);
+    });
+
+    // Rate buttons
+    panel.querySelectorAll('.seq-rate-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.registry.setParam(id, 'rate', btn.dataset.rate);
+      });
+    });
+
+    this._initKnobs(panel, id);
+    requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
+    return panel;
+  }
+
+  _buildSeqCvCells(id, panel, params, bars) {
+    const totalSteps = 16 * (bars ?? 1);
+    const grid = panel.querySelector(`#seq-grid-${id}`);
+    if (!grid) return;
+    grid.style.setProperty('--seq-cols', totalSteps);
+    grid.style.width = `${totalSteps * 16}px`;
+    grid.innerHTML = '';
+    // Beat-marker row
+    for (let col = 0; col < totalSteps; col++) {
+      const isBar  = col % 16 === 0;
+      const isBeat = col % 4  === 0;
+      const cls = isBar ? 'seq-beat-dot bar' : (isBeat ? 'seq-beat-dot beat' : 'seq-beat-dot');
+      const dot = document.createElement('div');
+      dot.className = cls;
+      grid.appendChild(dot);
+    }
+    // Note cells
+    for (let row = 0; row < 25; row++) {
+      for (let col = 0; col < totalSteps; col++) {
+        const activeRow = params[`step-${col}-note`] ?? 12;
+        const vel       = params[`step-${col}-vel`]  ?? 0;
+        const velCls  = (activeRow === row && vel > 0) ? `vel-${vel}` : '';
+        const rootCls = row === 12 ? 'root-row' : '';
+        const cell = document.createElement('div');
+        cell.className = `seq-cell ${velCls} ${rootCls}`.trim();
+        cell.dataset.seq = id; cell.dataset.step = col; cell.dataset.row = row;
+        grid.appendChild(cell);
+      }
+    }
+  }
+
+  _rebuildSeqCvGrid(id, panel) {
+    const mod = this.registry.modules.get(id);
+    if (!mod) return;
+    const bars = mod.params.bars ?? 1;
+    const btn = panel.querySelector('.seq-bars-btn');
+    if (btn) btn.textContent = `BARS: ${bars}`;
+    this._buildSeqCvCells(id, panel, mod.params, bars);
+    this._attachSeqCvHandlers(id, panel);
+    this._refreshSeqCvGrid(id, panel);
+  }
+
+  _attachSeqCvHandlers(id, panel) {
+    const grid = panel.querySelector(`#seq-grid-${id}`);
+    if (!grid) return;
+    // Remove old listeners by cloning (simpler than tracking)
+    const newGrid = grid.cloneNode(true);
+    grid.parentNode.replaceChild(newGrid, grid);
+
+    let dragState = null; // { activate: bool }
+
+    const paintCell = cell => {
+      if (!cell || !cell.classList.contains('seq-cell')) return;
+      const step = parseInt(cell.dataset.step);
+      const row  = parseInt(cell.dataset.row);
+      const mod  = this.registry.modules.get(id);
+      if (!mod) return;
+      const curNote = mod.params[`step-${step}-note`] ?? 12;
+      const curVel  = mod.params[`step-${step}-vel`]  ?? 0;
+      if (dragState.activate) {
+        if (curNote !== row || curVel === 0) {
+          this.registry.setParam(id, `step-${step}-note`, row);
+          this.registry.setParam(id, `step-${step}-vel`, 1);
+          // _onParamChanged → _refreshSeqCvGrid handles the visual update
+        }
+      } else {
+        if (curNote === row && curVel > 0) {
+          this.registry.setParam(id, `step-${step}-vel`, 0);
+        }
+      }
+    };
+
+    newGrid.addEventListener('mousedown', e => {
+      const cell = e.target.closest('.seq-cell');
+      if (!cell) return;
+      const step = parseInt(cell.dataset.step);
+      const row  = parseInt(cell.dataset.row);
+      const mod  = this.registry.modules.get(id);
+      if (!mod) return;
+      const curNote = mod.params[`step-${step}-note`] ?? 12;
+      const curVel  = mod.params[`step-${step}-vel`]  ?? 0;
+      // Click (no drag): cycle velocity; drag: paint/erase
+      if (curNote === row && curVel > 0) {
+        if (e.type === 'mousedown') {
+          // Will decide on mouseup vs mousemove
+          dragState = { activate: false, stepped: false, step, row, origVel: curVel };
+        } else {
+          dragState = { activate: false };
+          paintCell(cell);
+        }
+      } else {
+        dragState = { activate: true };
+        paintCell(cell);
+      }
+    });
+
+    newGrid.addEventListener('mousemove', e => {
+      if (!dragState) return;
+      const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest('.seq-cell');
+      if (!cell || cell.dataset.seq !== id) return;
+      if (dragState.stepped === false && dragState.origVel !== undefined) {
+        // Started on an active cell — first move means we're erasing, not cycling
+        dragState.stepped = true;
+        dragState.activate = false;
+      }
+      paintCell(cell);
+    });
+
+    const onUp = () => {
+      if (!dragState) return;
+      // If mouse released without dragging: cycle velocity
+      if (dragState.stepped === false && dragState.origVel !== undefined) {
+        const step = dragState.step, row = dragState.row;
+        const mod  = this.registry.modules.get(id);
+        if (mod) {
+          const curVel = mod.params[`step-${step}-vel`] ?? 0;
+          this.registry.setParam(id, `step-${step}-vel`, curVel >= 3 ? 0 : curVel + 1);
+          // _onParamChanged handles visual update
+        }
+      }
+      dragState = null;
+    };
+    newGrid.addEventListener('mouseup', onUp);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  _createSeqDrumPanel(id, params) {
+    this._injectSeqCss();
+    const def = MODULE_TYPE_DEFS['seq-drum'];
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-fx seq-panel'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', def.hue);
+
+    const curRate = params.rate ?? '16';
+    const rates   = [['4','4TH'],['8','8TH'],['d8','D8TH'],['t8','T8TH'],['16','16TH'],['32','32ND']];
+
+    // Beat markers: 2 dots at col 0 (bar), 1 dot at cols 4,8,12 (beats)
+    const beatDotsHtml = Array.from({length: 16}, (_, i) =>
+      `<div class="seq-beat-dot${i === 0 ? ' bar' : (i % 4 === 0 ? ' beat' : '')}"></div>`
+    ).join('');
+
+    let gridHtml = `<div class="seq-grid seq-drum-grid" id="seq-grid-${id}">`;
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 16; col++) {
+        const active = params[`step-${row}-${col}`] ? 'active' : '';
+        gridHtml += `<div class="drum-cell ${active}" data-seq="${id}" data-row="${row}" data-step="${col}"></div>`;
+      }
+    }
+    gridHtml += '</div>';
+
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;">
+        <span class="panel-title" style="margin-bottom:0;flex:1;">D-SEQ</span>
+        <button class="seq-collapse-btn" title="Show/hide grid">▶</button>
+      </div>
+      <div class="seq-rate-grid" style="margin-bottom:2px;">
+        ${rates.map(([r,l])=>`<button class="seq-rate-btn${curRate===r?' active':''}" data-rate="${r}">${l}</button>`).join('')}
+      </div>
+      <div class="seq-grid-wrap collapsed" id="seq-wrap-${id}">
+        <div style="display:flex;width:256px;margin-bottom:1px;">${beatDotsHtml}</div>
+        ${gridHtml}
+      </div>
+    `;
+
+    // Collapse button
+    const collapseBtn = panel.querySelector('.seq-collapse-btn');
+    collapseBtn.addEventListener('click', () => {
+      const wrap = panel.querySelector(`#seq-wrap-${id}`);
+      const isCollapsed = wrap.classList.contains('collapsed');
+      wrap.classList.toggle('collapsed', !isCollapsed);
+      collapseBtn.textContent = isCollapsed ? '▼' : '▶';
+      if (isCollapsed) panel.style.zIndex = this.panelTopZ++;
+    });
+
+    // Rate buttons
+    panel.querySelectorAll('.seq-rate-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.registry.setParam(id, 'rate', btn.dataset.rate);
+      });
+    });
+
+    // Click and drag-paint
+    let drumDragActivate = null;
+
+    const paintDrumCell = (cell) => {
+      if (!cell || !cell.classList.contains('drum-cell')) return;
+      const step = parseInt(cell.dataset.step);
+      const row  = parseInt(cell.dataset.row);
+      const mod  = this.registry.modules.get(id);
+      if (!mod) return;
+      const key = `step-${row}-${step}`;
+      const cur = !!mod.params[key];
+      if (drumDragActivate !== cur) return;
+      this.registry.setParam(id, key, drumDragActivate ? 0 : 1);
+      cell.classList.toggle('active', !drumDragActivate);
+    };
+
+    const grid = panel.querySelector(`#seq-grid-${id}`);
+    grid.addEventListener('mousedown', e => {
+      const cell = e.target.closest('.drum-cell');
+      if (!cell) return;
+      const mod  = this.registry.modules.get(id);
+      if (!mod) return;
+      const key = `step-${cell.dataset.row}-${cell.dataset.step}`;
+      drumDragActivate = !!mod.params[key];
+      paintDrumCell(cell);
+    });
+
+    grid.addEventListener('mousemove', e => {
+      if (drumDragActivate === null) return;
+      const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest('.drum-cell');
+      if (cell && cell.dataset.seq === id) paintDrumCell(cell);
+    });
+
+    grid.addEventListener('mouseup', () => { drumDragActivate = null; });
+    document.addEventListener('mouseup', () => { drumDragActivate = null; });
+
+    return panel;
+  }
+
+  _createDrumKnobPanel(id, type) {
+    const def = MODULE_TYPE_DEFS[type];
+    const params = this.registry.modules.get(id)?.params ?? {};
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-fx'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', def.hue);
+    const knobs = Object.entries(def.paramDefs).map(([p, pd]) =>
+      `<div class="synth-control"><label>${pd.label}</label>
+         <canvas class="knob-canvas" data-module="${id}" data-param="${p}" width="28" height="28"></canvas>
+         <span class="val" data-val="${p}">${pd.format(params[p] ?? 0)}</span>
+       </div>`
+    ).join('');
+    panel.innerHTML = `<span class="panel-title">${def.label}</span><div class="synth-hgroup">${knobs}</div>`;
+    this._initKnobs(panel, id);
+    requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
+    return panel;
+  }
+
+  _createDrumHatPanel(id, params)   { return this._createDrumKnobPanel(id, 'drum-hat'); }
+  _createDrumKickPanel(id, params)  { return this._createDrumKnobPanel(id, 'drum-kick'); }
+  _createDrumSnarePanel(id, params) { return this._createDrumKnobPanel(id, 'drum-snare'); }
+
+  _createSidechainPanel(id, params) {
+    const def = MODULE_TYPE_DEFS['sidechain'];
+    const panel = document.createElement('div');
+    panel.className = 'panel-box panel-fx'; panel.id = `panel-${id}`;
+    panel.style.setProperty('--ph', def.hue);
+    const knobs = Object.entries(def.paramDefs).map(([p, pd]) =>
+      `<div class="synth-control"><label>${pd.label}</label>
+         <canvas class="knob-canvas" data-module="${id}" data-param="${p}" width="28" height="28"></canvas>
+         <span class="val" data-val="${p}">${pd.format(params[p] ?? 0)}</span>
+       </div>`
+    ).join('');
+    panel.innerHTML = `<span class="panel-title">DUCK</span><div class="synth-hgroup">${knobs}</div>`;
+    this._initKnobs(panel, id);
+    requestAnimationFrame(() => this._redrawAllKnobs(panel, id, params, def));
+    return panel;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -828,7 +1386,7 @@ class PatchSystem {
     const jacks = this._gatherJacks();
     this._drawAllCables(ctx2d, jacks);
     this._drawCursor(ctx2d);
-    jacks.forEach(j => j.isCV ? drawCvJack(ctx2d, j.x, j.y, j.plugged, j.alpha) : drawJack(ctx2d, j.x, j.y, j.h, j.plugged, j.alpha));
+    jacks.forEach(j => j.isCV ? drawCvJack(ctx2d, j.x, j.y, j.plugged, j.alpha) : j.isNote ? drawNoteJack(ctx2d, j.x, j.y, j.plugged, j.alpha) : drawJack(ctx2d, j.x, j.y, j.h, j.plugged, j.alpha));
   }
 
   _gatherJacks() {
@@ -846,8 +1404,9 @@ class PatchSystem {
       const plugged = isOut
         ? registry.patchesFrom(modId).some(p => p.fromPort === port)
         : !isEmpty && registry.patchesTo(modId).some(p => p.toPort === port);
-      const isCV = el.classList.contains('port-cv');
-      jacks.push({ x:cx, y:cy, h, plugged, alpha: isEmpty ? 0.45 : 0.88, id:`${isOut?'out':'in'}-${modId}-${port}`, modId, port, isOut, isEmpty, isCV });
+      const isCV   = el.classList.contains('port-cv');
+      const isNote = el.classList.contains('port-note');
+      jacks.push({ x:cx, y:cy, h, plugged, alpha: isEmpty ? 0.45 : 0.88, id:`${isOut?'out':'in'}-${modId}-${port}`, modId, port, isOut, isEmpty, isCV, isNote });
     });
     return jacks;
   }
@@ -861,7 +1420,9 @@ class PatchSystem {
       const key = `${p.fromId}-${p.fromPort}-${p.toId}-${p.toPort}`;
       const mid = { x:(fromJ.x+toJ.x)/2, y:(fromJ.y+toJ.y)/2 };
       const phys = this._getPhys(key, mid.x, mid.y);
-      if (p.signalType === 'cv') {
+      if (p.signalType === 'note') {
+        drawNoteCable(ctx2d, fromJ.x, fromJ.y, toJ.x, toJ.y, phys.px, phys.py);
+      } else if (p.signalType === 'cv') {
         drawCvCable(ctx2d, fromJ.x, fromJ.y, toJ.x, toJ.y, phys.px, phys.py);
       } else {
         const fromMod = registry.modules.get(p.fromId);
@@ -874,7 +1435,9 @@ class PatchSystem {
   _drawCursor(ctx2d) {
     if (!this.patchCursor) return;
     const { fromJack, signalType } = this.patchCursor;
-    if (signalType === 'cv') {
+    if (signalType === 'note') {
+      drawNoteCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, 0, 0);
+    } else if (signalType === 'cv') {
       drawCvCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, 0, 0);
       const pulse = 0.45 + Math.sin(performance.now()/200)*0.2;
       ctx2d.save();
@@ -920,11 +1483,14 @@ class PatchSystem {
     if (!this.patchCursor) {
       // Start patch from output jack, or lift cable from input jack
       if (hit.isOut) {
-        // Lift any existing cable from this specific output port
-        const curOut = registry.patches.find(p => p.fromId === hit.modId && p.fromPort === hit.port);
-        if (curOut) registry.removePatch(curOut.fromId, curOut.fromPort, curOut.toId, curOut.toPort);
-        // Start cursor (allow re-routing)
-        const sigType = hit.isCV ? 'cv' : 'audio';
+        // Note outputs fan-out: don't lift existing cable, just start a new one
+        // Audio/CV outputs: lift existing cable (re-routing replaces)
+        if (!hit.isNote) {
+          const curOut = registry.patches.find(p => p.fromId === hit.modId && p.fromPort === hit.port);
+          if (curOut) registry.removePatch(curOut.fromId, curOut.fromPort, curOut.toId, curOut.toPort);
+        }
+        // Start cursor
+        const sigType = hit.isNote ? 'note' : hit.isCV ? 'cv' : 'audio';
         this.patchCursor = { fromId: hit.modId, fromPort: hit.port, fromJack: hit, signalType: sigType };
       } else if (!hit.isEmpty && hit.plugged) {
         // Lift cable from input — find what was connected and put it on cursor
@@ -937,7 +1503,7 @@ class PatchSystem {
             const fromMod = registry.modules.get(existingPatch.fromId);
             const h = MODULE_TYPE_DEFS[fromMod?.type]?.hue || 200;
             const sigType = existingPatch.signalType ?? 'audio';
-            this.patchCursor = { fromId: existingPatch.fromId, fromPort: existingPatch.fromPort, fromJack: { x:r.left+r.width/2, y:r.top+r.height/2, h, isCV: sigType === 'cv' }, signalType: sigType };
+            this.patchCursor = { fromId: existingPatch.fromId, fromPort: existingPatch.fromPort, fromJack: { x:r.left+r.width/2, y:r.top+r.height/2, h, isCV: sigType==='cv', isNote: sigType==='note' }, signalType: sigType };
           }
         }
       } else if (hit.isEmpty) {
@@ -947,7 +1513,7 @@ class PatchSystem {
       // Complete the patch
       if (!hit.isOut) {
         // Validate signal type compatibility
-        const toSigType = hit.isCV ? 'cv' : 'audio';
+        const toSigType = hit.isNote ? 'note' : hit.isCV ? 'cv' : 'audio';
         if (this.patchCursor.signalType !== toSigType) { this.patchCursor = null; return; }
         // Connecting to an input (or empty slot)
         const toId   = hit.modId;
@@ -968,9 +1534,12 @@ class PatchSystem {
         this.patchCursor = null;
       } else {
         // Clicked another output — switch source
-        const curOut2 = registry.patches.find(p => p.fromId === hit.modId && p.fromPort === hit.port);
-        if (curOut2) registry.removePatch(curOut2.fromId, curOut2.fromPort, curOut2.toId, curOut2.toPort);
-        this.patchCursor = { fromId: hit.modId, fromPort: hit.port, fromJack: hit };
+        const sigType2 = hit.isNote ? 'note' : hit.isCV ? 'cv' : 'audio';
+        if (!hit.isNote) {
+          const curOut2 = registry.patches.find(p => p.fromId === hit.modId && p.fromPort === hit.port);
+          if (curOut2) registry.removePatch(curOut2.fromId, curOut2.fromPort, curOut2.toId, curOut2.toPort);
+        }
+        this.patchCursor = { fromId: hit.modId, fromPort: hit.port, fromJack: hit, signalType: sigType2 };
       }
     }
   }
@@ -1030,9 +1599,10 @@ class ShopSystem {
     this.itemsEl.innerHTML = '';
     for (const def of SHOP_DEFS) {
       const cat = MODULE_TYPE_DEFS[def.type]?.category;
-      if (this.activeTab === 'voices' && cat !== 'osc') continue;
-      if (this.activeTab === 'fx'     && (cat === 'osc' || cat === 'cv')) continue;
-      if (this.activeTab === 'cv'     && cat !== 'cv') continue;
+      if (this.activeTab === 'voices'   && cat !== 'osc') continue;
+      if (this.activeTab === 'fx'       && (cat === 'osc' || cat === 'cv' || cat === 'sequencer' || cat === 'drum')) continue;
+      if (this.activeTab === 'cv'       && cat !== 'cv') continue;
+      if (this.activeTab === 'drums'    && cat !== 'sequencer' && cat !== 'drum') continue;
       const price = GAME_CONFIG.modulePrices[def.type] ?? 0;
       const afford = score >= price;
       const qty = this.registry.countByType(def.type);

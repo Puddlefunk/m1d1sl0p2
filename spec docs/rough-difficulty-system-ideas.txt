@@ -1,0 +1,431 @@
+# GAME FLOW, LEVELING & REWARD SYSTEM SPECIFICATION
+
+## 1. PURPOSE
+
+Define a **deterministic, state-driven gameplay loop** with:
+
+* Explicit phases
+* Clear progression rules
+* Tunable reward structure
+* Zero hidden logic
+
+This system must be:
+
+* Fully compatible with the Difficulty Config
+* Predictable and debuggable
+* Easy to rebalance late-stage
+
+---
+
+# 2. GAME STATE MACHINE
+
+## 2.1 Top-Level States
+
+```js
+GameState =
+  "practice"
+| "awaitingKey"
+| "play"
+```
+
+---
+
+## 2.2 Play Substates
+
+```js
+PlayPhase =
+  "idle"
+| "hint"
+| "input"
+| "success"
+| "fail"
+| "transition"
+```
+
+---
+
+## 2.3 State Transitions
+
+### Practice → AwaitingKey
+
+* Trigger: player presses PLAY
+
+### AwaitingKey → Play
+
+* Trigger: player plays valid major/minor chord
+* Action:
+
+  * Set key
+  * Build chord pool
+  * Reset run stats
+
+---
+
+### Play Loop
+
+```
+idle → hint → input → (success | fail) → transition → next challenge
+```
+
+---
+
+## 2.4 Phase Definitions
+
+### HINT
+
+* Show chord visually
+* Animate hint notes
+* Duration: `level.timing.hintDurationMs`
+
+---
+
+### INPUT
+
+* Player attempts chord
+* Timer active if enabled
+* Success condition:
+
+  * All required pitch classes present
+
+---
+
+### SUCCESS
+
+* Trigger reward calculation
+* Visual/audio feedback
+* Duration: `timing.successDelayMs`
+
+---
+
+### FAIL
+
+* Reset streak
+* Apply penalties (optional)
+* Duration: `timing.failDelayMs`
+
+---
+
+### TRANSITION
+
+* Load next challenge
+* Small buffer before hint phase
+
+---
+
+# 3. LEVELING SYSTEM
+
+## 3.1 Level Resolution
+
+Level-up is triggered by **sustained streak**, not score.
+
+```js
+levelUp = streak >= level.streakThreshold for level.sustainDurationMs
+```
+
+* Streak must be held above threshold continuously for a minimum duration
+* Score still accumulates and feeds the shop/currency, but does NOT gate levels
+* Immediate level-up on condition met — phosphor flash + flower bloom fires
+
+---
+
+## 3.2 Level-Up Effects
+
+On level-up:
+
+* Update difficulty parameters
+* Rebuild chord pool
+* Trigger:
+
+  * visual feedback
+  * sound
+* Unlock:
+
+  * modules
+  * parameters
+  * systems (shop, patching, etc.)
+
+---
+
+## 3.3 No Downgrade Rule
+
+* Player level never decreases within a run
+
+---
+
+# 4. CHALLENGE GENERATION
+
+## 4.1 Input Sources
+
+* Current key (optional)
+* Level config
+* Difficulty config
+
+---
+
+## 4.2 Selection Logic
+
+```js
+availableChords =
+  filter(CHORD_POOL,
+    chord.diff <= level.maxChordDifficulty
+  )
+```
+
+If key is set:
+
+* restrict to diatonic pool
+
+---
+
+## 4.3 Deck System
+
+* Shuffle chords into a deck
+* Prevent immediate repeats
+* Rebuild when empty
+
+---
+
+# 5. REWARD SYSTEM
+
+## 5.1 Reward Components
+
+Each successful chord grants:
+
+```js
+Reward = {
+  base,
+  timeBonus,
+  streakBonus,
+  difficultyBonus (optional)
+}
+```
+
+---
+
+## 5.2 Base Score
+
+```js
+base = level.rewards.baseScore
+```
+
+---
+
+## 5.3 Time Bonus
+
+```js
+timeBonus =
+  timeRemainingRatio * maxBonus
+```
+
+Where:
+
+```js
+timeRemainingRatio =
+  (timeLimit - timeTaken) / timeLimit
+```
+
+If no timer:
+
+```js
+timeBonus = maxBonus
+```
+
+---
+
+## 5.4 Streak Bonus
+
+```js
+streakMultiplier =
+  1 + (streak * streakIncrement)
+```
+
+Final score:
+
+```js
+scoreGain =
+  (base + timeBonus) * streakMultiplier
+```
+
+---
+
+## 5.5 Difficulty Bonus (Optional)
+
+Encourages harder chords:
+
+```js
+difficultyBonus =
+  chordDifficulty * multiplier
+```
+
+---
+
+# 6. STREAK SYSTEM
+
+## 6.1 Rules
+
+* +1 on success
+* **Decay on fail, not immediate reset** — streak has a buffer of ~3 consecutive misses
+* First miss: visual shudder, field flinches, streak charge drops but does not break
+* Second miss: field loses pressure visibly, ripples weaken, boundary becomes more absorbing
+* Third consecutive miss: streak breaks, field goes cold, multiplier resets
+* A successful hit at any point during decay recovers the buffer — rewards catching back up
+
+---
+
+## 6.2 Effects
+
+* Score multiplier
+* Visual intensity
+* Audio feedback scaling
+
+---
+
+## 6.3 Optional Extensions
+
+* “Streak tiers” (combo thresholds)
+* Bonus rewards at milestones
+
+---
+
+# 7. FAILURE SYSTEM
+
+## 7.1 Trigger Conditions
+
+* Timer expires
+* Incorrect chord after input window (optional)
+
+---
+
+## 7.2 Effects
+
+* Decrement streak buffer (see 6.1 — streak does NOT reset immediately)
+* No score gain for the failed challenge
+* Visual field shudders — dissonant ripple fires from center in wrong-note colour
+* Streak only fully breaks after buffer exhausted (3 consecutive misses)
+* No hard penalties — the field going cold is punishment enough
+
+---
+
+# 8. PROGRESSION PRESSURE
+
+Controlled via config:
+
+### Variables:
+
+* Hint duration ↓ over levels
+* Time limit ↓
+* Chord complexity ↑
+* Reward scaling ↑
+
+---
+
+# 9. RUN STRUCTURE
+
+A “run” is defined as:
+
+```
+enter play → continuous challenges → exit play
+```
+
+Reset on:
+
+* returning to practice
+* manual restart (optional)
+
+**No game over state.** The game is an endless runner — the player can always pause, exit to practice, spend points in the shop, and play their synth. Stopping is never punished. The field going cold from a broken streak is the only consequence of failure, and it recovers naturally as the player rebuilds.
+
+---
+
+## 9.1 Run Stats (optional)
+
+```js
+RunStats = {
+  score,
+  maxStreak,
+  accuracy,
+  chordsCompleted
+}
+```
+
+---
+
+# 10. REWARD → SYSTEM INTEGRATION
+
+Rewards feed into:
+
+### 10.1 Score
+
+* Drives level progression
+
+### 10.2 Currency (optional extension)
+
+* Spend in shop
+
+### 10.3 Unlocks
+
+* Triggered by level thresholds
+
+---
+
+# 11. FEEDBACK SYSTEM (IMPORTANT FOR FEEL)
+
+## Success Feedback Must Include:
+
+* Visual burst (colour tied to chord root)
+* Synth hit / harmonic reinforcement
+* Score popup
+* Streak update
+* At streak milestones: lightning lines intensify, boundary resonance ticks up
+
+## Level-Up Feedback Must Include:
+
+* Phosphor flash — full flower-of-life skeleton strobes white, decays to purple afterglow
+* Bounding circle blooms outward (flower grows a ring)
+* Warm radial pulse from center outward
+* Audio: resolution chord or harmonic swell
+
+## Fail Feedback Must Include:
+
+* Dissonant ripple fires from center in wrong-note colour
+* Field shudders — short resonance dip
+* No ambiguity
+* Quick recovery — field stabilises within 1-2 beats
+
+---
+
+# 12. TIMING MODEL
+
+All durations must come from config:
+
+* hint duration
+* input window
+* success/fail delay
+
+No hardcoded timing values.
+
+---
+
+# 13. EDGE CASES
+
+System must handle:
+
+* Partial chords (ignore until valid)
+* Extra notes (allowed if required notes present)
+* Rapid note changes
+* MIDI jitter
+
+---
+
+# 14. DESIGN GOALS SUMMARY
+
+This system must:
+
+* Feel responsive and fair
+* Reward speed + accuracy
+* Scale complexity smoothly
+* Be fully tunable without code changes
+* Integrate cleanly with patch + synth systems
+
+---
+
+## END SPEC

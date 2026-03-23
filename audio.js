@@ -59,10 +59,8 @@ class ModuleRegistry extends EventTarget {
   }
 
   addPatch(fromId, fromPort, toId, toPort) {
-    // Determine signal type from port names — cv if port is 'cv', ends with '-cv', starts with 'cv-' or 'cvo-'
-    const isCV = p => p === 'cv' || p.endsWith('-cv') || p.startsWith('cv-') || p.startsWith('cvo-');
-    const fromType = isCV(fromPort) ? 'cv' : 'audio';
-    const toType   = isCV(toPort)   ? 'cv' : 'audio';
+    const fromType = this._portSignalType(fromPort);
+    const toType   = this._portSignalType(toPort);
     if (fromType !== toType) return; // reject incompatible signal types
     // Dynamic input modules: remove existing connection to same toPort
     const def = MODULE_TYPE_DEFS[this.modules.get(toId)?.type];
@@ -90,6 +88,13 @@ class ModuleRegistry extends EventTarget {
     this.patches = this.patches.filter(p => p.fromId !== fromId);
     if (this.patches.length !== before)
       this.dispatchEvent(new CustomEvent('patch-changed', { detail: { patches: this.patches } }));
+  }
+
+  // Signal type helpers
+  _portSignalType(port) {
+    if (port === 'note-out' || port === 'note-in') return 'note';
+    const isCV = p => p === 'cv' || p.endsWith('-cv') || p.startsWith('cv-') || p.startsWith('cvo-');
+    return isCV(port) ? 'cv' : 'audio';
   }
 
   removePatchesTo(toId, toPort) {
@@ -141,14 +146,85 @@ class ModuleRegistry extends EventTarget {
 }
 
 // ─────────────────────────────────────────────────────────────
+// SECTION 6b — TRANSPORT
+// ─────────────────────────────────────────────────────────────
+class Transport {
+  constructor(audioGraph) {
+    this.ag           = audioGraph;
+    this.bpm          = 120;
+    this.rateDivision = 16;
+    this.playing      = false;
+    this.rootMidi     = 36; // C2 default
+    this._nextStepTime = 0;
+    this._globalStep   = 0;
+    this._timerId      = null;
+    this._subscribers  = new Map(); // moduleId → callback(globalStep, audioTime)
+    this.LOOKAHEAD     = 0.1;
+    this.INTERVAL      = 0.025;
+  }
+
+  get stepDuration() { return (60 / this.bpm) * (4 / this.rateDivision); }
+
+  setRootKey(noteNameOrPc) {
+    const pc  = NOTE_NAMES.includes(noteNameOrPc) ? noteNameOrPc : (ENHARMONIC[noteNameOrPc] ?? noteNameOrPc);
+    const idx = NOTE_NAMES.indexOf(pc);
+    if (idx >= 0) this.rootMidi = 36 + idx;
+  }
+
+  start() {
+    if (this.playing || !this.ag.ctx) return;
+    this.playing      = true;
+    this._globalStep  = 0;
+    this._nextStepTime = this.ag.ctx.currentTime + 0.05;
+    this._tick();
+  }
+
+  stop() {
+    this.playing = false;
+    if (this._timerId) { clearTimeout(this._timerId); this._timerId = null; }
+  }
+
+  subscribe(id, cb)   { this._subscribers.set(id, cb); }
+  unsubscribe(id)     { this._subscribers.delete(id); }
+
+  getBeatPosition(audioTime) {
+    if (!this.playing) return { bar:0, beat:0, phase:0 };
+    const elapsed    = Math.max(0, audioTime - (this._nextStepTime - this._globalStep * this.stepDuration));
+    const totalSteps = elapsed / this.stepDuration;
+    const beat       = Math.floor(totalSteps / (this.rateDivision / 4));
+    return { bar: Math.floor(beat / 4), beat: beat % 4, phase: totalSteps % 1 };
+  }
+
+  _tick() {
+    if (!this.playing || !this.ag.ctx) return;
+    const ctx = this.ag.ctx;
+    while (this._nextStepTime < ctx.currentTime + this.LOOKAHEAD) {
+      const step = this._globalStep, time = this._nextStepTime;
+      for (const [, cb] of this._subscribers) cb(step, time);
+      this._globalStep++;
+      this._nextStepTime += this.stepDuration;
+    }
+    this._timerId = setTimeout(() => this._tick(), this.INTERVAL * 1000);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // SECTION 7 — AUDIO GRAPH
 // ─────────────────────────────────────────────────────────────
 class AudioGraph {
   constructor(registry) {
     this.registry = registry;
     this.ctx = null;
-    this.voices = new Map(); // midi → voice object
+    this.voices = new Map(); // vk ('midi:60', 'seq-cv-0:60') → voice object
     this.glideFromFreq = null;
+    this.seqGlideFreqs = new Map(); // seqId → last freq for per-seq glide
+    this.transport = null;
+    this.seqPlayheads       = new Map(); // seqId → {step, row, audioTime}
+    this._seqCvNoteOffTimers = new Map(); // seqId → {midi, timerId}
+    this.drumNoiseBuffers   = new Map(); // voiceId → AudioBuffer
+    this._kickClickBuf      = null;
+    this.sidechainNodes     = new Map(); // scId → {inputGain,keyGain,rectifier,smoother,duckerGain,processGain,dryGain,wetGain,outGain}
+    this.userNoteHistory    = [];        // rolling buffer of {midi,velocity,time}
     // Global nodes
     this.masterGain = null;
     this.dryBus = null;
@@ -226,13 +302,27 @@ class AudioGraph {
     this._buildCustomWaves();
     this._applyAllParams();
 
-    // Init any already-added mixer/lfo/delay/fx modules
+    // Init any already-added modules
     for (const [id, mod] of this.registry.modules) {
-      if (mod.type === 'mixer') this._initMixer(id, mod.params);
-      if (mod.type === 'lfo')     this._initLFO(id, mod.params);
-      if (mod.type === 'vibrato') this._initVibrato(id, mod.params);
-      if (mod.type === 'delay')   this._initDelay(id, mod.params);
-      if (mod.type === 'fx')    this._initFX(id, mod.params);
+      if (mod.type === 'mixer')    this._initMixer(id, mod.params);
+      if (mod.type === 'lfo')      this._initLFO(id, mod.params);
+      if (mod.type === 'vibrato')  this._initVibrato(id, mod.params);
+      if (mod.type === 'delay')    this._initDelay(id, mod.params);
+      if (mod.type === 'fx')       this._initFX(id, mod.params);
+      if (mod.type === 'sidechain') this._initSidechain(id, mod.params);
+    }
+
+    // Transport — always live
+    if (!this.transport) {
+      this.transport = new Transport(this);
+      const transMod = this.registry.modules.get('transport-0');
+      if (transMod) this.transport.bpm = Math.round(sliderToBpm(transMod.params.bpm ?? 0.545));
+    }
+
+    // Subscribe existing seq modules (if ensure() called after modules were added)
+    for (const [id, mod] of this.registry.modules) {
+      if (mod.type === 'seq-cv')   this._initSeqCv(id, mod.params);
+      if (mod.type === 'seq-drum') this._initSeqDrum(id, mod.params);
     }
   }
 
@@ -364,12 +454,15 @@ class AudioGraph {
 
   _onModuleAdded({ id, type, params }) {
     if (!this.ctx) return;
-    if (type === 'mixer') this._initMixer(id, params);
-    if (type === 'lfo')     this._initLFO(id, params);
-    if (type === 'vibrato') this._initVibrato(id, params);
-    if (type === 'delay')   this._initDelay(id, params);
-    if (type === 'filter') this._applyFilterParams(params);
-    if (type === 'fx')     this._initFX(id, params);
+    if (type === 'mixer')    this._initMixer(id, params);
+    if (type === 'lfo')      this._initLFO(id, params);
+    if (type === 'vibrato')  this._initVibrato(id, params);
+    if (type === 'delay')    this._initDelay(id, params);
+    if (type === 'filter')   this._applyFilterParams(params);
+    if (type === 'fx')       this._initFX(id, params);
+    if (type === 'sidechain') this._initSidechain(id, params);
+    if (type === 'seq-cv')   this._initSeqCv(id, params);
+    if (type === 'seq-drum') this._initSeqDrum(id, params);
   }
 
   _onModuleRemoved({ id, type }) {
@@ -415,6 +508,20 @@ class AudioGraph {
         this.fxNodes.delete(id);
       }
     }
+    if (type === 'sidechain') {
+      const sc = this.sidechainNodes.get(id);
+      if (sc) {
+        [sc.inputGain, sc.keyGain, sc.rectifier, sc.smoother, sc.processGain, sc.dryGain, sc.wetGain, sc.outGain]
+          .forEach(n => { try{n.disconnect();}catch(e){} });
+        this.sidechainNodes.delete(id);
+      }
+    }
+    if (type === 'seq-cv' || type === 'seq-drum') {
+      if (this.transport) this.transport.unsubscribe(id);
+      this.seqPlayheads.delete(id);
+      const t = this._seqCvNoteOffTimers.get(id);
+      if (t) { clearTimeout(t.timerId); this._seqCvNoteOffTimers.delete(id); }
+    }
   }
 
   _onParamChanged({ id, param, value }) {
@@ -423,8 +530,12 @@ class AudioGraph {
     if (!mod) return;
 
     if (mod.type === 'filter') {
-      if (param === 'cutoff')    [this.filterNode, this.filterNode2].forEach(f => f.frequency.value = sliderToFreq(value));
-      if (param === 'resonance') [this.filterNode, this.filterNode2].forEach(f => f.Q.value = 0.1+value*19);
+      if (param === 'cutoff')     [this.filterNode, this.filterNode2].forEach(f => f.frequency.value = sliderToFreq(value));
+      if (param === 'resonance')  [this.filterNode, this.filterNode2].forEach(f => f.Q.value = 0.1+value*19);
+      if (param === 'filterType') {
+        const ft = value === 'hp' ? 'highpass' : value === 'bp' ? 'bandpass' : 'lowpass';
+        [this.filterNode, this.filterNode2].forEach(f => f.type = ft);
+      }
     } else if (mod.type === 'lfo') {
       const n = this.lfoNodes.get(id);
       if (n) {
@@ -481,6 +592,18 @@ class AudioGraph {
         }
       }
     }
+    if (mod.type === 'transport') {
+      if (param === 'bpm'  && this.transport) this.transport.bpm = Math.round(sliderToBpm(value));
+      if (param === 'rate' && this.transport) this.transport.rateDivision = [4,8,16,32][Math.round(value*3)] ?? 16;
+    }
+    if (mod.type === 'sidechain') {
+      const sc = this.sidechainNodes.get(id);
+      if (sc) {
+        if (param === 'amount') sc.duckerGain.gain.setTargetAtTime(-value * 0.95, this.ctx.currentTime, 0.01);
+        if (param === 'wet')    sc.wetGain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.01);
+        if (param === 'dry')    sc.dryGain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.01);
+      }
+    }
     // Sync active voice gains when osc level changes
     if (MODULE_TYPE_DEFS[mod.type]?.category === 'osc' && param === 'level') {
       this._syncVoiceGainsForModule(id);
@@ -496,14 +619,19 @@ class AudioGraph {
     this._syncDelayOutputs();
     this._syncFXOutputs();
     this._syncLFOOutputs();
+    this._syncSidechainOutputs();
     this._syncAllVoices(); // last: per-voice connections after globals
   }
 
   _applyFilterParams(params) {
     if (!this.filterNode) return;
     [this.filterNode, this.filterNode2].forEach(f => {
-      if (params.cutoff    !== undefined) f.frequency.value = sliderToFreq(params.cutoff);
-      if (params.resonance !== undefined) f.Q.value = 0.1 + params.resonance*19;
+      if (params.cutoff     !== undefined) f.frequency.value = sliderToFreq(params.cutoff);
+      if (params.resonance  !== undefined) f.Q.value = 0.1 + params.resonance*19;
+      if (params.filterType !== undefined) {
+        const ft = params.filterType === 'hp' ? 'highpass' : params.filterType === 'bp' ? 'bandpass' : 'lowpass';
+        f.type = ft;
+      }
     });
   }
 
@@ -657,6 +785,11 @@ class AudioGraph {
     if (mod.type === 'lfo') {
       return this.lfoNodes.get(toId)?.inputGain ?? null;
     }
+    if (mod.type === 'sidechain') {
+      const sc = this.sidechainNodes.get(toId);
+      if (!sc) return null;
+      return toPort === 'key' ? sc.keyGain : sc.inputGain;
+    }
     return null;
   }
 
@@ -675,26 +808,31 @@ class AudioGraph {
     return level;
   }
 
-  // Compute the single voice output destination from the current patch graph.
-  // Priority: ENV module output patch → first OSC direct/via-ENV output.
-  _getVoiceOutputDest() {
-    // If any ENV module has an output patch, follow it
+  // Compute voice output destination from the patch graph.
+  // ownedOscIds: array of osc module IDs this voice controls (null = all).
+  _getVoiceOutputDest(ownedOscIds = null) {
+    const owns = id => !ownedOscIds || ownedOscIds.includes(id);
+    // If any ENV has an output patch and is downstream of an owned OSC, follow it
     const envMod = this.registry.getModulesByType('env')[0];
     if (envMod) {
-      const envOut = this.registry.patchesFrom(envMod.id).find(p => p.fromPort === 'env');
-      if (envOut) {
-        const dest = this._getDestNode(envOut.toId, envOut.toPort);
-        if (dest) return dest;
+      const envFed = !ownedOscIds ||
+        this.registry.patchesTo(envMod.id).some(p => p.toPort === 'audio' && owns(p.fromId));
+      if (envFed) {
+        const envOut = this.registry.patchesFrom(envMod.id).find(p => p.fromPort === 'env');
+        if (envOut) {
+          const dest = this._getDestNode(envOut.toId, envOut.toPort);
+          if (dest) return dest;
+        }
       }
     }
-    // Fall back: first OSC with a non-env output patch
+    // Fall back: first owned OSC with an output patch
     for (const [id, mod] of this.registry.modules) {
       if (MODULE_TYPE_DEFS[mod.type]?.category !== 'osc' || mod.type === 'osc-noise') continue;
+      if (!owns(id)) continue;
       const patch = this.registry.patchesFrom(id).find(p => p.fromPort === 'audio');
       if (!patch) continue;
       const toMod = this.registry.modules.get(patch.toId);
       if (toMod?.type === 'env') {
-        // This OSC goes to ENV — follow ENV's output
         const envOut = this.registry.patchesFrom(patch.toId).find(p => p.fromPort === 'env');
         if (envOut) {
           const dest = this._getDestNode(envOut.toId, envOut.toPort);
@@ -708,6 +846,22 @@ class AudioGraph {
     return null;
   }
 
+  // Returns OSC module IDs owned by seqId (null = MIDI-driven, unpatched OSCs)
+  _getOwnedOscIds(seqId) {
+    const owned = [];
+    for (const [id, mod] of this.registry.modules) {
+      const def = MODULE_TYPE_DEFS[mod.type];
+      if (!def || def.category !== 'osc' || mod.type === 'osc-noise') continue;
+      const noteInPatch = this.registry.patchesTo(id).find(p => p.toPort === 'note-in');
+      if (seqId === null) {
+        if (!noteInPatch) owned.push(id);
+      } else {
+        if (noteInPatch?.fromId === seqId) owned.push(id);
+      }
+    }
+    return owned;
+  }
+
   _syncVoiceGainsForModule(modId) {
     for (const [, voice] of this.voices) {
       const vnode = voice.oscNodes.get(modId);
@@ -719,20 +873,17 @@ class AudioGraph {
   }
 
   _syncAllVoices() {
-    for (const [midi, voice] of this.voices) {
-      this._rewireVoice(voice);
-    }
+    for (const [, voice] of this.voices) this._rewireVoice(voice);
   }
 
   _rewireVoice(voice) {
-    // Disconnect all osc gains and envGain
+    const ownedOscIds = voice.ownedOscIds ?? null;
     for (const [, vnode] of voice.oscNodes) { try { vnode.gain.disconnect(); } catch(e) {} }
     try { voice.envGain.disconnect(); } catch(e) {}
-    // Reconnect envGain to current voice output destination
-    const voiceDest = this._getVoiceOutputDest();
+    const voiceDest = this._getVoiceOutputDest(ownedOscIds);
     if (voiceDest) voice.envGain.connect(voiceDest);
-    // All OSC gains always flow through envGain (per-voice ADSR gate)
     for (const [modId, vnode] of voice.oscNodes) {
+      if (ownedOscIds && !ownedOscIds.includes(modId)) { vnode.gain.gain.value = 0; continue; }
       const patch = this.registry.patchesFrom(modId).find(p => p.fromPort === 'audio');
       if (!patch) { vnode.gain.gain.value = 0; continue; }
       vnode.gain.gain.value = this._oscEffectiveGain(modId);
@@ -740,16 +891,21 @@ class AudioGraph {
     }
   }
 
-  playNote(midi, velocity) {
+  // seqId=null → MIDI voice; seqId='seq-cv-0' etc → sequencer voice.
+  // when=null → immediate; when=audioTime → scheduled (lookahead).
+  playNote(midi, velocity, when = null, seqId = null) {
     this.ensure();
-    this.stopNote(midi);
-    const ctx = this.ctx, now = ctx.currentTime;
-    const freq = midiToFreq(midi);
-    const prevFreq = this.glideFromFreq;
-    this.glideFromFreq = freq;
-    const vol = (velocity/127)*0.28;
+    const ctx = this.ctx;
+    const t = when ?? ctx.currentTime;
+    const vk = seqId ? `${seqId}:${midi}` : `midi:${midi}`;
+    this.stopNote(midi, t, seqId);
 
-    // ADSR from env module — only if explicitly patched into the signal chain
+    const freq = midiToFreq(midi);
+    const prevFreq = seqId === null ? this.glideFromFreq : (this.seqGlideFreqs.get(seqId) ?? null);
+    if (seqId === null) this.glideFromFreq = freq;
+    else this.seqGlideFreqs.set(seqId, freq);
+    const vol = (velocity / 127) * 0.28;
+
     const envMod = this.registry.getModulesByType('env')[0];
     const envPatched = envMod && this.registry.patchesFrom(envMod.id).length > 0;
     const ep = envPatched ? envMod.params : { attack:0.02, decay:0.22, sustain:0.55, release:0.05 };
@@ -757,32 +913,28 @@ class AudioGraph {
     const dec = sliderToDecay(ep.decay ?? 0.22);
     const sus = ep.sustain ?? 0.55;
     const rel = sliderToRelease(ep.release ?? 0.2);
+    const sustainLevel = vol * sus;
 
-    // Glide only applied when a GLIDE CV module is explicitly patched to an OSC
-    const globalGlide = 0;
+    const ownedOscIds = this._getOwnedOscIds(seqId);
 
-    // Per-voice envelope
     const envGain = ctx.createGain();
-    envGain.gain.setValueAtTime(0, now);
-    envGain.gain.linearRampToValueAtTime(vol, now+atk);
-    envGain.gain.linearRampToValueAtTime(vol*sus, now+atk+dec);
-    const voiceDest = this._getVoiceOutputDest();
+    envGain.gain.setValueAtTime(0, t);
+    envGain.gain.linearRampToValueAtTime(vol, t + atk);
+    envGain.gain.linearRampToValueAtTime(sustainLevel, t + atk + dec);
+    const voiceDest = this._getVoiceOutputDest(ownedOscIds.length ? ownedOscIds : null);
     if (voiceDest) envGain.connect(voiceDest);
 
-
-    // Per-voice osc nodes
     const oscNodes = new Map();
 
     for (const [id, mod] of this.registry.modules) {
       const def = MODULE_TYPE_DEFS[mod.type];
       if (!def || def.category !== 'osc') continue;
-      if (mod.type === 'osc-noise') continue; // handled globally
+      if (mod.type === 'osc-noise') continue;
+      if (ownedOscIds.length && !ownedOscIds.includes(id)) continue; // MIDI isolation
 
       const patch = this.registry.patchesFrom(id).find(p => p.fromPort === 'audio');
-      // Build voice even if unpatched (will have gain=0), to enable live patching
 
-      // CV dispatch — accumulate all cv-* input contributions
-      let semiOffset = 0, detuneAccum = 0, glide = globalGlide, gainScale = 1.0;
+      let semiOffset = 0, detuneAccum = 0, glide = 0, gainScale = 1.0;
       const vibratoSources = [];
       for (const cvp of this.registry.patchesTo(id).filter(p => p.signalType === 'cv')) {
         const src = this.registry.modules.get(cvp.fromId);
@@ -790,7 +942,7 @@ class AudioGraph {
         switch (src.type) {
           case 'pitch':
           case 'chord':   semiOffset += this._cvSemiOffset(cvp.fromId, cvp.fromPort); break;
-          case 'unison': { const pi = parseInt(cvp.fromPort.replace('cv-','')) || 0; detuneAccum += (pi - 1) * (src.params.spread??0.5) * 20; break; }
+          case 'unison': { const pi = parseInt(cvp.fromPort.replace('cv-','')) || 0; detuneAccum += (pi-1)*(src.params.spread??0.5)*20; break; }
           case 'vibrato': vibratoSources.push(cvp.fromId); break;
           case 'glide':   glide = (src.params.time ?? 0) * 2; break;
           case 'velocity':{ const s=src.params.sens??0.7; gainScale *= 1.0-s+s*(velocity/127); break; }
@@ -802,17 +954,16 @@ class AudioGraph {
       const wf = mod.params.waveform || def.waveform || 'sine';
 
       const osc = ctx.createOscillator();
-      if (wf === 'sine')     { osc.type = 'sine'; }
-      else if (wf === 'sawtooth') { osc.type = 'sawtooth'; }
+      if      (wf === 'sine')     osc.type = 'sine';
+      else if (wf === 'sawtooth') osc.type = 'sawtooth';
       else if (wf === 'triangle') { if (this.triWave) osc.setPeriodicWave(this.triWave); else osc.type='triangle'; }
       else if (wf === 'square')   { if (this.sqWave)  osc.setPeriodicWave(this.sqWave);  else osc.type='square'; }
-      else if (wf === 'sub')  { osc.type='square'; osc.detune.value=(mod.params.subTune??0)*100; }
+      else if (wf === 'sub')      { osc.type='square'; osc.detune.value=(mod.params.subTune??0)*100; }
       else osc.type = 'sine';
 
       if (glide > 0 && prevFreq !== null) {
-        const startF = targetFreq*(prevFreq/freq);
-        osc.frequency.setValueAtTime(startF, now);
-        osc.frequency.linearRampToValueAtTime(targetFreq, now+glide);
+        osc.frequency.setValueAtTime(targetFreq*(prevFreq/freq), t);
+        osc.frequency.linearRampToValueAtTime(targetFreq, t+glide);
       } else { osc.frequency.value = targetFreq; }
       osc.detune.value += detuneAccum;
       for (const vId of vibratoSources) { const vn = this.vibratoNodes.get(vId); if (vn) vn.depthGain.connect(osc.detune); }
@@ -820,9 +971,8 @@ class AudioGraph {
       const gainNode = ctx.createGain();
       gainNode.gain.value = patch ? this._oscEffectiveGain(id) * gainScale : 0;
 
-      // Waveshaping
-      const foldAmt  = (wf==='sine')     ? (mod.params.fold ??0) : 0;
-      const driveAmt = (wf==='sawtooth') ? (mod.params.drive??0) : 0;
+      const foldAmt  = wf==='sine'     ? (mod.params.fold ??0) : 0;
+      const driveAmt = wf==='sawtooth' ? (mod.params.drive??0) : 0;
       const waveParam = mod.params.waveParam ?? 0;
 
       if (foldAmt>0.01 || (wf==='sine' && mod.type==='osc' && waveParam>0.01)) {
@@ -838,51 +988,331 @@ class AudioGraph {
         oscNodes.set(id, { osc, gain: gainNode });
       }
 
-      // All osc gains always flow through envGain (explicit routing is on envGain's output)
       gainNode.connect(envGain);
-
-      osc.start(now);
+      osc.start(t);
     }
 
-    // Pad (if fx module present)
+    // Pad (fx module)
     let padGain = null, padOsc = null;
-    const fxMod = this.registry.getModulesByType('fx')[0];
-    if (fxMod && (fxMod.params.pad??0) > 0) {
-      padOsc = ctx.createOscillator(); padOsc.type='sine'; padOsc.frequency.value=freq;
-      padGain = ctx.createGain();
-      padGain.gain.setValueAtTime(0, now);
-      padGain.gain.linearRampToValueAtTime(vol*(fxMod.params.pad??0)*0.6, now+0.5);
-      const fxFn = this.fxNodes.get(fxMod.id);
-      padOsc.connect(padGain); padGain.connect(fxFn?.inputGain ?? this.dryBus);
-      padOsc.start(now);
+    if (seqId === null) { // pad only for MIDI voices
+      const fxMod = this.registry.getModulesByType('fx')[0];
+      if (fxMod && (fxMod.params.pad??0) > 0) {
+        padOsc = ctx.createOscillator(); padOsc.type='sine'; padOsc.frequency.value=freq;
+        padGain = ctx.createGain();
+        padGain.gain.setValueAtTime(0, t);
+        padGain.gain.linearRampToValueAtTime(vol*(fxMod.params.pad??0)*0.6, t+0.5);
+        const fxFn = this.fxNodes.get(fxMod.id);
+        padOsc.connect(padGain); padGain.connect(fxFn?.inputGain ?? this.dryBus);
+        padOsc.start(t);
+      }
     }
 
-    // Open noise gate
-    if (this.noiseGate) this.noiseGate.gain.setTargetAtTime(1, now, 0.008);
+    if (this.noiseGate) this.noiseGate.gain.setTargetAtTime(1, t, 0.008);
 
-    this.voices.set(midi, { oscNodes, envGain, padGain, padOsc, rel });
+    this.voices.set(vk, { oscNodes, envGain, padGain, padOsc, rel, sustainLevel, ownedOscIds });
   }
 
-  stopNote(midi) {
-    const v = this.voices.get(midi);
+  stopNote(midi, when = null, seqId = null) {
+    const vk = seqId ? `${seqId}:${midi}` : `midi:${midi}`;
+    const v = this.voices.get(vk);
     if (!v || !this.ctx) return;
-    const now = this.ctx.currentTime;
+    const t = when ?? this.ctx.currentTime;
+    const isScheduled = when !== null && when > this.ctx.currentTime + 0.001;
     [v.envGain, v.padGain].forEach(g => {
       if (!g) return;
-      g.gain.cancelScheduledValues(now);
-      g.gain.setValueAtTime(g.gain.value, now);
-      g.gain.linearRampToValueAtTime(0, now+v.rel);
+      g.gain.cancelScheduledValues(t);
+      if (isScheduled) {
+        g.gain.setValueAtTime(v.sustainLevel ?? 0, t);
+      } else {
+        g.gain.setValueAtTime(g.gain.value, t);
+      }
+      g.gain.linearRampToValueAtTime(0, t + v.rel);
     });
-    const delay = (v.rel+0.15)*1000;
+    const delay = (v.rel + 0.15 + Math.max(0, t - this.ctx.currentTime)) * 1000;
     setTimeout(() => {
       for (const [, vn] of v.oscNodes) { try { vn.osc.stop(); vn.shaper?.disconnect(); } catch(e){} }
       try { v.padOsc?.stop(); } catch(e) {}
     }, delay);
-    this.voices.delete(midi);
+    this.voices.delete(vk);
     if (this.noiseGate && this.voices.size === 0)
-      this.noiseGate.gain.setTargetAtTime(0, now, 0.06);
+      this.noiseGate.gain.setTargetAtTime(0, t, 0.06);
   }
 
+  // ── RATE HELPER ──────────────────────────────────────────────
+  // Returns [{localStep, time, cellDur}] for any steps that fire at this globalStep.
+  // rate: '4'=quarters, '8'=eighths, 'd8'=dotted-8ths, 't8'=triplet-8ths, '16'=sixteenths, '32'=32nds
+  _rateFiresAt(globalStep, rate, total, audioTime, stepDur) {
+    switch (rate) {
+      case '4':
+        if (globalStep % 4 !== 0) return [];
+        return [{ localStep: Math.floor(globalStep / 4) % total, time: audioTime, cellDur: stepDur * 4 }];
+      case '8':
+        if (globalStep % 2 !== 0) return [];
+        return [{ localStep: Math.floor(globalStep / 2) % total, time: audioTime, cellDur: stepDur * 2 }];
+      case 'd8':
+        if (globalStep % 3 !== 0) return [];
+        return [{ localStep: Math.floor(globalStep / 3) % total, time: audioTime, cellDur: stepDur * 3 }];
+      case 't8': {
+        if (globalStep % 4 === 3) return [];
+        const t8Count = Math.floor(globalStep / 4) * 3 + (globalStep % 4);
+        return [{ localStep: t8Count % total, time: audioTime, cellDur: stepDur * 4 / 3 }];
+      }
+      case '32': {
+        const ls1 = (globalStep * 2) % total;
+        const ls2 = (globalStep * 2 + 1) % total;
+        return [
+          { localStep: ls1, time: audioTime,               cellDur: stepDur / 2 },
+          { localStep: ls2, time: audioTime + stepDur / 2, cellDur: stepDur / 2 },
+        ];
+      }
+      default: // '16'
+        return [{ localStep: globalStep % total, time: audioTime, cellDur: stepDur }];
+    }
+  }
+
+  // ── SEQ-CV ──────────────────────────────────────────────────
+  _initSeqCv(id, params) {
+    if (!this.transport || this.transport._subscribers.has(id)) return;
+    this.transport.subscribe(id, (step, time) => this._fireSeqCvStep(id, step, time));
+  }
+
+  _fireSeqCvStep(seqId, globalStep, audioTime) {
+    if (!this.ctx) return;
+    const mod = this.registry.modules.get(seqId);
+    if (!mod) return;
+    const rate    = mod.params.rate ?? '16';
+    const bars    = mod.params.bars ?? 1;
+    const total   = 16 * bars;
+    const stepDur = this.transport.stepDuration;
+    const fires   = this._rateFiresAt(globalStep, rate, total, audioTime, stepDur);
+    if (!fires.length) return;
+
+    for (const { localStep, time, cellDur } of fires) {
+      const velState = mod.params[`step-${localStep}-vel`] ?? 0;
+      this.seqPlayheads.set(seqId, { step: localStep, row: mod.params[`step-${localStep}-note`] ?? 12, audioTime: time });
+      if (velState === 0) { this._seqCvStopPrev(seqId, time); continue; }
+
+      const noteRow = mod.params[`step-${localStep}-note`] ?? 12;
+      const midi    = this.transport.rootMidi + (noteRow - 12);
+      const vel     = velState === 1 ? 64 : 127;
+      const gate    = sliderToGate(mod.params.gate ?? 0.5);
+      const noteOff = time + cellDur * gate;
+
+      this._seqCvStopPrev(seqId, time);
+
+      if (velState === 3) {
+        for (let i = 0; i < 4; i++) this.playNote(midi, 64, time + i * cellDur / 4, seqId);
+        const lastOff = time + 3 * cellDur / 4 + cellDur / 4 * 0.8;
+        const delay   = Math.max(0, (lastOff - this.ctx.currentTime) * 1000);
+        const timerId = setTimeout(() => { if (this.ctx) this.stopNote(midi, lastOff, seqId); }, delay);
+        this._seqCvNoteOffTimers.set(seqId, { midi, timerId });
+      } else {
+        this.playNote(midi, vel, time, seqId);
+        const delay   = Math.max(0, (noteOff - this.ctx.currentTime) * 1000);
+        const capturedOff = noteOff;
+        const timerId = setTimeout(() => { if (this.ctx) this.stopNote(midi, capturedOff, seqId); }, delay);
+        this._seqCvNoteOffTimers.set(seqId, { midi, timerId });
+      }
+    }
+  }
+
+  _seqCvStopPrev(seqId, atTime) {
+    const prev = this._seqCvNoteOffTimers.get(seqId);
+    if (prev) {
+      clearTimeout(prev.timerId);
+      this.stopNote(prev.midi, atTime, seqId);
+      this._seqCvNoteOffTimers.delete(seqId);
+    }
+  }
+
+  // ── SEQ-DRUM ─────────────────────────────────────────────────
+  _initSeqDrum(id, params) {
+    if (!this.transport || this.transport._subscribers.has(id)) return;
+    this.transport.subscribe(id, (step, time) => this._fireSeqDrumStep(id, step, time));
+  }
+
+  _fireSeqDrumStep(seqId, globalStep, audioTime) {
+    if (!this.ctx) return;
+    const mod = this.registry.modules.get(seqId);
+    if (!mod) return;
+    const rate    = mod.params.rate ?? '16';
+    const stepDur = this.transport.stepDuration;
+    const fires   = this._rateFiresAt(globalStep, rate, 16, audioTime, stepDur);
+    if (!fires.length) return;
+
+    const notePatches = this.registry.patchesFrom(seqId).filter(p => p.fromPort === 'note-out' && p.signalType === 'note');
+
+    for (const { localStep, time } of fires) {
+      const col = localStep;
+      this.seqPlayheads.set(seqId, { step: col, row: 0, audioTime: time });
+      for (let row = 0; row < 4; row++) {
+        if (!mod.params[`step-${row}-${col}`]) continue;
+        const patch = notePatches[row];
+        if (!patch) continue;
+        const drumMod = this.registry.modules.get(patch.toId);
+        if (drumMod) this._fireDrumVoice(patch.toId, drumMod.type, 100, time);
+      }
+    }
+  }
+
+  // ── DRUM VOICES ──────────────────────────────────────────────
+  _fireDrumVoice(voiceId, type, vel, time) {
+    if (!this.ctx) return;
+    if (type === 'drum-hat')   this._fireHat(voiceId, vel, time);
+    if (type === 'drum-kick')  this._fireKick(voiceId, vel, time);
+    if (type === 'drum-snare') this._fireSnare(voiceId, vel, time);
+  }
+
+  _getDrumOutputDest(voiceId) {
+    const patch = this.registry.patchesFrom(voiceId).find(p => p.fromPort === 'audio');
+    if (!patch) return null;
+    return this._getDestNode(patch.toId, patch.toPort) ?? null;
+  }
+
+  _getDrumNoiseBuffer(voiceId) {
+    if (this.drumNoiseBuffers.has(voiceId)) return this.drumNoiseBuffers.get(voiceId);
+    const len = Math.floor(this.ctx.sampleRate * 0.5);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.drumNoiseBuffers.set(voiceId, buf);
+    return buf;
+  }
+
+  _getKickClickBuffer() {
+    if (this._kickClickBuf) return this._kickClickBuf;
+    if (!this.ctx) return null;
+    const len = Math.floor(this.ctx.sampleRate * 0.01);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+    this._kickClickBuf = buf;
+    return buf;
+  }
+
+  _fireHat(voiceId, vel, time) {
+    const ctx   = this.ctx;
+    const mod   = this.registry.modules.get(voiceId);
+    if (!mod) return;
+    const atk   = sliderToDrumDecay((mod.params.attack ?? 0.28) * 0.1); // short click
+    const decay = sliderToDrumDecay(mod.params.decay ?? 0.55);
+    const vol   = (vel / 127) * (mod.params.level ?? 0.7) * 0.4;
+    const buf   = this._getDrumNoiseBuffer(voiceId);
+    const src   = ctx.createBufferSource(); src.buffer = buf;
+    const hpf   = ctx.createBiquadFilter(); hpf.type = 'highpass'; hpf.frequency.value = 8000;
+    const gain  = ctx.createGain();
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(vol, time + atk);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    src.connect(hpf); hpf.connect(gain);
+    const dest = this._getDrumOutputDest(voiceId);
+    if (dest) gain.connect(dest);
+    src.start(time); src.stop(time + decay + 0.05);
+  }
+
+  _fireKick(voiceId, vel, time) {
+    const ctx = this.ctx;
+    const mod = this.registry.modules.get(voiceId);
+    if (!mod) return;
+    const decay     = sliderToDrumDecay(mod.params.decay ?? 0.55);
+    const startFreq = sliderToKickFreq(mod.params.tune ?? 0.3);
+    const vol       = (vel / 127) * (mod.params.level ?? 0.8) * 0.8;
+    const dest      = this._getDrumOutputDest(voiceId);
+
+    const osc  = ctx.createOscillator(); osc.type = 'sine';
+    osc.frequency.setValueAtTime(startFreq, time);
+    osc.frequency.exponentialRampToValueAtTime(30, time + decay * 0.7);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(vol, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    osc.connect(gain);
+    if (dest) gain.connect(dest);
+    osc.start(time); osc.stop(time + decay + 0.05);
+
+    // Click transient
+    const clickBuf = this._getKickClickBuffer();
+    if (clickBuf) {
+      const clickSrc  = ctx.createBufferSource(); clickSrc.buffer = clickBuf;
+      const clickGain = ctx.createGain(); clickGain.gain.value = vol * 0.8;
+      clickSrc.connect(clickGain);
+      if (dest) clickGain.connect(dest);
+      clickSrc.start(time); clickSrc.stop(time + 0.05);
+    }
+  }
+
+  _fireSnare(voiceId, vel, time) {
+    const ctx  = this.ctx;
+    const mod  = this.registry.modules.get(voiceId);
+    if (!mod) return;
+    const decay    = sliderToDrumDecay(mod.params.decay ?? 0.4);
+    const snapAmt  = mod.params.snap  ?? 0.5; // 0-1: affects noise decay speed
+    const toneFreq = 100 + (mod.params.tone ?? 0.3) * 200; // 100–300 Hz
+    const vol      = (vel / 127) * (mod.params.level ?? 0.7) * 0.6;
+    const dest     = this._getDrumOutputDest(voiceId);
+
+    // Noise rattle (snap affects noise portion)
+    const noiseSrc  = ctx.createBufferSource(); noiseSrc.buffer = this._getDrumNoiseBuffer(voiceId);
+    const bpf       = ctx.createBiquadFilter(); bpf.type='bandpass'; bpf.frequency.value=1500; bpf.Q.value=0.8;
+    const noiseGain = ctx.createGain();
+    const noiseDec  = decay * (0.5 + snapAmt * 0.5);
+    noiseGain.gain.setValueAtTime(vol * (0.4 + snapAmt * 0.4), time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, time + noiseDec);
+    noiseSrc.connect(bpf); bpf.connect(noiseGain);
+
+    // Tone body
+    const osc      = ctx.createOscillator(); osc.type='triangle'; osc.frequency.value=toneFreq;
+    const toneGain = ctx.createGain();
+    toneGain.gain.setValueAtTime(vol * (0.6 - snapAmt * 0.3), time);
+    toneGain.gain.exponentialRampToValueAtTime(0.001, time + decay * 0.5);
+    osc.connect(toneGain);
+
+    if (dest) { noiseGain.connect(dest); toneGain.connect(dest); }
+    noiseSrc.start(time); noiseSrc.stop(time + noiseDec + 0.05);
+    osc.start(time); osc.stop(time + decay * 0.5 + 0.05);
+  }
+
+  // ── SIDECHAIN ─────────────────────────────────────────────────
+  _initSidechain(id, params) {
+    if (!this.ctx || this.sidechainNodes.has(id)) return;
+    const ctx = this.ctx;
+    const inputGain  = ctx.createGain(); inputGain.gain.value = 1;
+    const keyGain    = ctx.createGain(); keyGain.gain.value = 1;
+    // Full-wave rectifier curve
+    const rectCurve  = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { const x = i*2/255-1; rectCurve[i] = Math.abs(x); }
+    const rectifier  = ctx.createWaveShaper(); rectifier.curve = rectCurve;
+    const smoother   = ctx.createBiquadFilter(); smoother.type='lowpass'; smoother.frequency.value = 20;
+    const duckerGain = ctx.createGain(); duckerGain.gain.value = -(params.amount ?? 0.7) * 0.95;
+    const processGain = ctx.createGain(); processGain.gain.value = 1;
+    // Key sidechain path: key → rectify → smooth → duckerGain → processGain.gain
+    keyGain.connect(rectifier);
+    rectifier.connect(smoother);
+    smoother.connect(duckerGain);
+    duckerGain.connect(processGain.gain);
+    // Audio path: input → (dry) + (processGain → wet) → out
+    inputGain.connect(processGain);
+    const dryGain = ctx.createGain(); dryGain.gain.value = params.dry ?? 0;
+    const wetGain = ctx.createGain(); wetGain.gain.value = params.wet ?? 1;
+    const outGain = ctx.createGain(); outGain.gain.value = 1;
+    inputGain.connect(dryGain);
+    processGain.connect(wetGain);
+    dryGain.connect(outGain);
+    wetGain.connect(outGain);
+    this.sidechainNodes.set(id, { inputGain, keyGain, rectifier, smoother, duckerGain, processGain, dryGain, wetGain, outGain });
+  }
+
+  _syncSidechainOutputs() {
+    for (const [scId, sc] of this.sidechainNodes) {
+      try { sc.outGain.disconnect(); } catch(e) {}
+      const outPatch = this.registry.patchesFrom(scId).find(p => p.fromPort === 'audio');
+      if (outPatch) {
+        const dest = this._getDestNode(outPatch.toId, outPatch.toPort);
+        if (dest) sc.outGain.connect(dest);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   playTone(midi, vol, when, duration) {
     if (!this.ctx) return;
     const osc = this.ctx.createOscillator(); osc.type='sine';
@@ -895,4 +1325,3 @@ class AudioGraph {
     osc.start(when); osc.stop(when+duration+0.05);
   }
 }
-shfsfhsfhsfhsfh

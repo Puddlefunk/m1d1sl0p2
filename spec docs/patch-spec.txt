@@ -1,0 +1,335 @@
+# PATCH GRAPH SYSTEM SPECIFICATION
+
+## 1. PURPOSE
+
+The Patch Graph System replaces the current hardcoded routing model with a **fully modular, instance-based signal graph**.
+
+It must:
+
+* Support **multiple instances of any module type**
+* Allow **dynamic routing of audio and modulation signals**
+* Provide a **clean interface for UI (patch cables, panels)**
+* Be **scalable for future modules and gameplay mechanics**
+
+---
+
+## 2. CORE CONCEPT
+
+The system is a **directed graph**:
+
+* **Nodes** = module instances (oscillators, filters, envelopes, etc.)
+* **Edges** = signal connections between modules
+* **Graph** = the current synth “patch”
+
+---
+
+## 3. DATA MODEL
+
+### 3.1 Patch
+
+```js
+Patch = {
+  nodes: { [nodeId]: Node },
+  connections: Connection[]
+}
+```
+
+---
+
+### 3.2 Node (Module Instance)
+
+```js
+Node = {
+  id: string,
+  type: string,
+  params: { [paramName]: ParamValue },
+  inputs: { [portName]: InputState },
+  outputs: { [portName]: OutputState }
+}
+```
+
+* Each node is a **unique instance**
+* No global or singleton modules
+* Multiple nodes of the same type are allowed
+
+---
+
+### 3.3 Connection (Edge)
+
+```js
+Connection = {
+  from: { node: string, port: string },
+  to:   { node: string, port: string },
+  type: "audio" | "mod"
+}
+```
+
+---
+
+## 4. MODULE DEFINITIONS
+
+All module types must be defined in a central registry.
+
+```js
+MODULE_DEFS = {
+  oscillator: {
+    inputs: ["pitch", "fm", "amp"],
+    outputs: ["audio"],
+    params: ["waveform", "detune", "gain"]
+  },
+  filter: {
+    inputs: ["audioIn", "cutoffMod", "resMod"],
+    outputs: ["audioOut"],
+    params: ["cutoff", "resonance"]
+  },
+  env: {
+    inputs: ["gate"],
+    outputs: ["env"],
+    params: ["attack", "decay", "sustain", "release"]
+  },
+  lfo: {
+    inputs: [],
+    outputs: ["mod"],
+    params: ["rate", "depth"]
+  },
+  mixer: {
+    inputs: ["in1", "in2", "in3", "in4"],
+    outputs: ["out"],
+    params: []
+  },
+  output: {
+    inputs: ["audio"],
+    outputs: [],
+    params: []
+  }
+}
+```
+
+This registry is the **single source of truth** for:
+
+* Valid ports
+* UI generation
+* Validation rules
+
+---
+
+## 5. SIGNAL TYPES
+
+Two signal domains must be enforced:
+
+### 5.1 Audio Signals
+
+* Continuous audio-rate data
+* Routed between audio ports only
+
+### 5.2 Modulation Signals
+
+* Control-rate values
+* Used to influence parameters
+
+### Rules:
+
+* `audio → audio` connections only
+* `mod → mod inputs or params`
+* Invalid connections must be rejected
+
+---
+
+## 6. PARAMETER MODEL (WITH MODULATION)
+
+Each parameter must support modulation from multiple sources.
+
+```js
+ParamValue = {
+  base: number,
+  mods: [
+    { sourceNode: string, output: string, amount: number }
+  ]
+}
+```
+
+Final parameter value:
+
+```js
+final = base + Σ(modulation * amount)
+```
+
+This avoids excessive explicit routing for common modulation use cases.
+
+---
+
+## 7. GRAPH EXECUTION
+
+### 7.1 Dependency Ordering
+
+Before processing, nodes must be **topologically sorted**:
+
+* Sources first (oscillators, LFOs)
+* Sinks last (output)
+
+Cycles are not allowed (initial implementation).
+
+---
+
+### 7.2 Processing Loop
+
+Per frame / audio buffer:
+
+```js
+for (node of orderedNodes) {
+  inputs = resolveInputs(node, graph)
+  outputs = processNode(node, inputs)
+}
+```
+
+---
+
+### 7.3 Input Resolution
+
+```js
+resolveInputs(node):
+  for each connection targeting node:
+    pull output from source node
+    assign to correct input port
+```
+
+---
+
+## 8. CONNECTION RULES
+
+* Each input port may define:
+
+  * **maxConnections** (e.g. 1 for audio)
+  * **multi-input allowed** (true for modulation)
+* Multiple modulation inputs are summed
+* Audio inputs are typically single-source
+
+---
+
+## 9. DYNAMIC NODE MANAGEMENT
+
+The system must support:
+
+### 9.1 Creating Nodes
+
+```js
+addNode(type) → nodeId
+```
+
+### 9.2 Removing Nodes
+
+```js
+removeNode(nodeId)
+```
+
+* Must also remove all associated connections
+
+### 9.3 Creating Connections
+
+```js
+connect(fromNode, fromPort, toNode, toPort, type)
+```
+
+### 9.4 Removing Connections
+
+```js
+disconnect(connectionId)
+```
+
+---
+
+## 10. UI INTEGRATION
+
+The UI must be **data-driven from the graph**.
+
+### 10.1 Module Panels
+
+* Generated per node
+* Display parameters from `params`
+* Display ports from `MODULE_DEFS`
+
+### 10.2 Patch Interaction
+
+User flow:
+
+1. Click output port → start connection
+2. Click input port → complete connection
+
+### 10.3 Visual Feedback
+
+* Cables represent connections
+* Signal flow may be visualised (optional)
+* Node activity can drive animations
+
+---
+
+## 11. GAMEPLAY INTEGRATION
+
+The patch graph must integrate with game systems:
+
+### 11.1 Unlock System
+
+* Unlock module types
+* Unlock max instance counts
+
+### 11.2 Difficulty System
+
+Controls:
+
+* Max number of nodes
+* Allowed module types
+* Allowed modulation complexity
+
+### 11.3 Persistence
+
+* Patch must be serialisable (JSON)
+* Supports saving/loading player builds
+
+---
+
+## 12. CONSTRAINTS (INITIAL IMPLEMENTATION)
+
+To reduce complexity:
+
+* No feedback loops (no cycles)
+* Fixed output node
+* Limited module set
+* Basic modulation only (no nested graphs)
+
+These can be expanded later.
+
+---
+
+## 13. EXAMPLE PATCH
+
+```js
+{
+  nodes: {
+    osc1:   { type: "oscillator", params: { waveform: "saw" } },
+    env1:   { type: "env", params: {} },
+    filter: { type: "filter", params: { cutoff: { base: 0.5, mods: [] } } },
+    out:    { type: "output" }
+  },
+  connections: [
+    { from:{node:"osc1", port:"audio"}, to:{node:"filter", port:"audioIn"}, type:"audio" },
+    { from:{node:"filter", port:"audioOut"}, to:{node:"out", port:"audio"}, type:"audio" },
+    { from:{node:"env1", port:"env"}, to:{node:"filter", port:"cutoffMod"}, type:"mod" }
+  ]
+}
+```
+
+---
+
+## 14. DESIGN GOALS SUMMARY
+
+This system must be:
+
+* Modular (instance-based, not hardcoded)
+* Extensible (new modules without refactor)
+* Deterministic (predictable signal flow)
+* UI-driven (graph reflects directly in interface)
+* Game-aware (supports progression and difficulty control)
+
+---
+
+## END SPEC

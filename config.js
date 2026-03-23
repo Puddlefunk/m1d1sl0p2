@@ -35,6 +35,10 @@ function sliderToDecay(v)   { return 0.01+v*0.5; }
 function sliderToRelease(v) { return 0.05+v*2.0; }
 function sliderToLfoRate(v)   { return 0.1+v*9.9; }
 function sliderToDelayTime(v) { return Math.pow(10, -2 + v*2); } // 10ms–1s (log)
+function sliderToBpm(v)       { return Math.round(40 * Math.pow(7.5, v)); }      // 40–300 BPM
+function sliderToGate(v)      { return 0.01 + v * 1.98; }                        // 1%–199%
+function sliderToDrumDecay(v) { return 0.01 * Math.pow(200, v); }                // 10ms–2s
+function sliderToKickFreq(v)  { return 30 + v * 70; }                            // 30–100 Hz
 
 // ─────────────────────────────────────────────────────────────
 // SECTION 2 — GAME CONFIG (all tunable values)
@@ -63,6 +67,9 @@ const GAME_CONFIG = {
     'filter': 600, 'env': 1000, 'fx': 1600, 'delay': 1400, 'lfo': 2000,
     'glide': 300, 'pitch': 200, 'vibrato': 350, 'unison': 400, 'chord': 450, 'velocity': 250,
     'mixer': 1800,
+    'seq-cv': 2400, 'seq-drum': 1800,
+    'drum-hat': 1200, 'drum-kick': 1400, 'drum-snare': 1300,
+    'sidechain': 2000,
   },
 };
 
@@ -72,7 +79,7 @@ const GAME_CONFIG = {
 const MODULE_TYPE_DEFS = {
   'osc-sine': {
     label:'SINE', category:'osc', waveform:'sine', hue:58, outputPort:'audio',
-    dynamicInputs: false,
+    dynamicInputs: false, fixedNoteInputPort: 'note-in',
     defaultParams: { level:0.8, octave:0, fold:0 },
     paramDefs: {
       level: { min:0, max:1, label:'LEVEL', format:v=>Math.round(v*100)+'%' },
@@ -81,7 +88,7 @@ const MODULE_TYPE_DEFS = {
   },
   'osc-saw': {
     label:'SAW', category:'osc', waveform:'sawtooth', hue:22, outputPort:'audio',
-    dynamicInputs: false,
+    dynamicInputs: false, fixedNoteInputPort: 'note-in',
     defaultParams: { level:0.8, octave:0, drive:0 },
     paramDefs: {
       level: { min:0, max:1, label:'LEVEL', format:v=>Math.round(v*100)+'%' },
@@ -90,7 +97,7 @@ const MODULE_TYPE_DEFS = {
   },
   'osc-tri': {
     label:'TRI', category:'osc', waveform:'triangle', hue:142, outputPort:'audio',
-    dynamicInputs: false,
+    dynamicInputs: false, fixedNoteInputPort: 'note-in',
     defaultParams: { level:0.8, octave:0, slope:0.5 },
     paramDefs: {
       level: { min:0, max:1, label:'LEVEL', format:v=>Math.round(v*100)+'%' },
@@ -99,7 +106,7 @@ const MODULE_TYPE_DEFS = {
   },
   'osc-sq': {
     label:'SQ', category:'osc', waveform:'square', hue:202, outputPort:'audio',
-    dynamicInputs: false,
+    dynamicInputs: false, fixedNoteInputPort: 'note-in',
     defaultParams: { level:0.8, octave:0, width:0.5 },
     paramDefs: {
       level: { min:0, max:1, label:'LEVEL', format:v=>Math.round(v*100)+'%' },
@@ -108,7 +115,7 @@ const MODULE_TYPE_DEFS = {
   },
   'osc-sub': {
     label:'SUB', category:'osc', waveform:'sub', hue:262, outputPort:'audio',
-    dynamicInputs: false,
+    dynamicInputs: false, fixedNoteInputPort: 'note-in',
     defaultParams: { level:0.8, octave:-1, subTune:0 },
     paramDefs: {
       level:   { min:0, max:1, label:'LEVEL', format:v=>Math.round(v*100)+'%' },
@@ -126,7 +133,7 @@ const MODULE_TYPE_DEFS = {
   },
   'osc': {
     label:'MULTI', category:'osc', waveform:null, hue:45, outputPort:'audio',
-    dynamicInputs: false,
+    dynamicInputs: false, fixedNoteInputPort: 'note-in',
     defaultParams: { level:0.8, octave:0, waveform:'sine', waveParam:0 },
     paramDefs: {
       level:     { min:0, max:1, label:'LEVEL', format:v=>Math.round(v*100)+'%' },
@@ -136,7 +143,7 @@ const MODULE_TYPE_DEFS = {
   'filter': {
     label:'VCF', category:'processor', hue:195, outputPort:'audio',
     dynamicInputs: false, fixedInputPort: 'in-0',
-    defaultParams: { cutoff:1.0, resonance:0.05 },
+    defaultParams: { cutoff:1.0, resonance:0.05, filterType:'lp' },
     paramDefs: {
       cutoff:    { min:0, max:1, label:'CUTOFF', format:v=>formatFreq(sliderToFreq(v)) },
       resonance: { min:0, max:1, label:'RES',    format:v=>(0.1+v*19).toFixed(1) },
@@ -245,9 +252,77 @@ const MODULE_TYPE_DEFS = {
   },
   'audio-out': {
     label:'OUT', category:'sink', hue:0,
-    dynamicInputs: true,
+    dynamicInputs: false, fixedInputPort: 'in',
     defaultParams: {},
     paramDefs: {}
+  },
+  // ── Transport & Sequencers ──────────────────────────────────
+  'transport': {
+    label:'CLOCK', category:'utility', hue:0,
+    dynamicInputs: false,
+    defaultParams: { bpm:0.545, rate:16, playing:0 },
+    paramDefs: {
+      bpm: { min:0, max:1, label:'BPM', format:v=>sliderToBpm(v)+'bpm' },
+    }
+  },
+  'seq-cv': {
+    label:'SEQ', category:'sequencer', hue:180, noteOutputPort:'note-out',
+    dynamicInputs: false,
+    defaultParams: { activeSteps:16, gate:0.374, bars:1, rate:'16' },
+    paramDefs: {
+      gate: { min:0, max:1, label:'GATE', format:v=>Math.round(sliderToGate(v)*100)+'%' },
+    }
+  },
+  'seq-drum': {
+    label:'D-SEQ', category:'sequencer', hue:300, noteOutputPort:'note-out',
+    dynamicInputs: false,
+    defaultParams: { bars:4, rate:'16' },
+    paramDefs: {}
+  },
+  // ── Drum Voices ─────────────────────────────────────────────
+  'drum-hat': {
+    label:'HAT', category:'drum', hue:45, outputPort:'audio', fixedNoteInputPort:'note-in',
+    dynamicInputs: false,
+    defaultParams: { level:0.7, attack:0.28, decay:0.55 },
+    paramDefs: {
+      level:  { min:0, max:1, label:'LVL', format:v=>Math.round(v*100)+'%' },
+      attack: { min:0, max:1, label:'ATK', format:v=>formatMs(sliderToDrumDecay(v)*0.1) },
+      decay:  { min:0, max:1, label:'DEC', format:v=>formatMs(sliderToDrumDecay(v)) },
+    }
+  },
+  'drum-kick': {
+    label:'KICK', category:'drum', hue:355, outputPort:'audio', fixedNoteInputPort:'note-in',
+    dynamicInputs: false,
+    defaultParams: { level:0.8, tune:0.3, decay:0.55, punch:0.6 },
+    paramDefs: {
+      level: { min:0, max:1, label:'LVL',  format:v=>Math.round(v*100)+'%' },
+      tune:  { min:0, max:1, label:'TUNE', format:v=>Math.round(sliderToKickFreq(v))+'Hz' },
+      decay: { min:0, max:1, label:'DEC',  format:v=>formatMs(sliderToDrumDecay(v)) },
+      punch: { min:0, max:1, label:'PNC',  format:v=>Math.round(v*100)+'%' },
+    }
+  },
+  'drum-snare': {
+    label:'SNR', category:'drum', hue:50, outputPort:'audio', fixedNoteInputPort:'note-in',
+    dynamicInputs: false,
+    defaultParams: { level:0.7, snap:0.5, tone:0.3, decay:0.4 },
+    paramDefs: {
+      level: { min:0, max:1, label:'LVL',  format:v=>Math.round(v*100)+'%' },
+      snap:  { min:0, max:1, label:'SNAP', format:v=>Math.round(v*100)+'%' },
+      tone:  { min:0, max:1, label:'TONE', format:v=>Math.round(100+v*200)+'Hz' },
+      decay: { min:0, max:1, label:'DEC',  format:v=>formatMs(sliderToDrumDecay(v)) },
+    }
+  },
+  // ── Effects ──────────────────────────────────────────────────
+  'sidechain': {
+    label:'DUCK', category:'processor', hue:240, outputPort:'audio',
+    dynamicInputs: false, fixedInputPorts: ['in-0', 'key'],
+    defaultParams: { amount:0.8, attack:0.3, release:0.5, wet:1.0 },
+    paramDefs: {
+      amount:  { min:0, max:1, label:'AMT', format:v=>Math.round(v*100)+'%' },
+      attack:  { min:0, max:1, label:'ATK', format:v=>Math.round((0.01+v*0.19)*1000)+'ms' },
+      release: { min:0, max:1, label:'REL', format:v=>Math.round((0.05+v*0.45)*1000)+'ms' },
+      wet:     { min:0, max:1, label:'WET', format:v=>Math.round(v*100)+'%' },
+    }
   },
 };
 
@@ -274,6 +349,13 @@ const SHOP_DEFS = [
   { type:'chord',     name:'CHORD',       desc:'Harmonic CV outputs: root, third, fifth, octave. Patch to separate OSCs for instant chords.' },
   { type:'velocity',  name:'VELOCITY',    desc:'Maps note velocity to CV. Patch to OSC cv input for dynamic loudness response.' },
   { type:'mixer',     name:'MIXER',       desc:'N-channel mixer. Grows as you patch. Chain mixers into mixers.' },
+  // Sequencers & Drums
+  { type:'seq-cv',    name:'STEP SEQ',    desc:'16-step pitch sequencer. Wire to any oscillator via note cable. Key-relative grid.' },
+  { type:'seq-drum',  name:'DRUM SEQ',    desc:'4-bar drum sequencer (4 rows × 16 steps). Wire to any drum voice via note cable.' },
+  { type:'drum-hat',  name:'HI-HAT',      desc:'Noise burst percussion. Wire a drum seq to trigger it.' },
+  { type:'drum-kick', name:'808 KICK',    desc:'Classic sine sweep kick. Tune, punch and decay controls.' },
+  { type:'drum-snare',name:'SNARE',       desc:'Noise + tone snare voice. Snap and decay controls.' },
+  { type:'sidechain', name:'SIDECHAIN',   desc:'Ducking FX. Plug a signal into KEY to duck the audio through IN.' },
 ];
 
 // ─────────────────────────────────────────────────────────────
