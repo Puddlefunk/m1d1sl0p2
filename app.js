@@ -298,6 +298,21 @@ function drawJack(c2d, x, y, h, plugged, alpha) {
   c2d.restore();
 }
 
+function drawAudioCable(c2d, sx, sy, ex, ey, hue, px, py) {
+  const horiz = Math.abs(ex-sx) > Math.abs(ey-sy), dist = Math.hypot(ex-sx, ey-sy);
+  const sag = Math.max(14, Math.min(dist*0.22, 55));
+  let cp1x, cp1y, cp2x, cp2y;
+  if (horiz) { cp1x=sx+(ex-sx)*0.25+px*0.4; cp1y=sy+sag+py*0.4; cp2x=sx+(ex-sx)*0.75+px*0.4; cp2y=ey+sag+py*0.4; }
+  else { const bow=Math.max(12,dist*0.16); cp1x=sx+bow+px*0.4; cp1y=sy+(ey-sy)*0.38+py*0.4; cp2x=ex+bow+px*0.4; cp2y=sy+(ey-sy)*0.62+py*0.4; }
+  c2d.save(); c2d.lineCap='round';
+  c2d.beginPath(); c2d.moveTo(sx,sy); c2d.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,ex,ey);
+  c2d.strokeStyle=`hsla(${hue},85%,58%,0.18)`; c2d.lineWidth=4.5; c2d.stroke();
+  c2d.beginPath(); c2d.moveTo(sx,sy); c2d.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,ex,ey);
+  c2d.setLineDash([5,4]); c2d.strokeStyle=`hsla(${hue},90%,68%,0.88)`; c2d.lineWidth=1.4; c2d.stroke();
+  c2d.setLineDash([]);
+  c2d.restore();
+}
+
 function drawCvCable(c2d, sx, sy, ex, ey, px, py) {
   const horiz = Math.abs(ex-sx) > Math.abs(ey-sy), dist = Math.hypot(ex-sx, ey-sy);
   const sag = Math.max(10, Math.min(dist*0.18, 44));

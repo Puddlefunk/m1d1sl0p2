@@ -856,7 +856,16 @@ class AudioGraph {
       if (seqId === null) {
         if (!noteInPatch) owned.push(id);
       } else {
-        if (noteInPatch?.fromId === seqId) owned.push(id);
+        if (noteInPatch?.fromId === seqId) {
+          owned.push(id);
+        } else if (noteInPatch) {
+          // Follow one level of note-chain pass-through modules (e.g. glide as through-device)
+          const upDef = MODULE_TYPE_DEFS[this.registry.modules.get(noteInPatch.fromId)?.type];
+          if (upDef?.fixedNoteInputPort && upDef?.noteOutputPort) {
+            const upPatch = this.registry.patchesTo(noteInPatch.fromId).find(p => p.toPort === 'note-in');
+            if (upPatch?.fromId === seqId) owned.push(id);
+          }
+        }
       }
     }
     return owned;
@@ -947,6 +956,12 @@ class AudioGraph {
           case 'glide':   glide = (src.params.time ?? 0) * 2; break;
           case 'velocity':{ const s=src.params.sens??0.7; gainScale *= 1.0-s+s*(velocity/127); break; }
         }
+      }
+      // Also check note chain: if osc's note-in comes from a glide module, read its time
+      if (glide === 0) {
+        const noteInPatch = this.registry.patchesTo(id).find(p => p.toPort === 'note-in');
+        const upstream = noteInPatch ? this.registry.modules.get(noteInPatch.fromId) : null;
+        if (upstream?.type === 'glide') glide = (upstream.params.time ?? 0) * 2;
       }
 
       const octMul = Math.pow(2, mod.params.octave ?? 0);

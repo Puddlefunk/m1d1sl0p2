@@ -184,6 +184,7 @@ const MODULE_TYPE_DEFS = {
     label:'GLI', category:'cv', hue:42,
     dynamicCvOutputs: true, dynamicCvInputs: true,
     dynamicInputs: false,
+    fixedNoteInputPort: 'note-in', noteOutputPort: 'note-out',
     defaultParams: { time:0.1 },
     paramDefs: {
       time: { min:0, max:1, label:'TIME', format:v=>(v*2).toFixed(2)+'s' },

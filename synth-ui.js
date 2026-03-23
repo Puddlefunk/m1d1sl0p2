@@ -1546,8 +1546,10 @@ class PatchSystem {
         drawCvCable(ctx2d, fromJ.x, fromJ.y, toJ.x, toJ.y, phys.px, phys.py);
       } else {
         const fromMod = registry.modules.get(p.fromId);
-        const h = MODULE_TYPE_DEFS[fromMod?.type]?.hue || 200;
-        drawCable(ctx2d, fromJ.x, fromJ.y, toJ.x, toJ.y, h, 0.72, phys.px, phys.py);
+        const toMod   = registry.modules.get(p.toId);
+        const isSend  = fromMod?.type === 'mixer' || toMod?.type === 'mixer' ||
+                        (toMod?.type === 'sidechain' && p.toPort === 'key');
+        drawAudioCable(ctx2d, fromJ.x, fromJ.y, toJ.x, toJ.y, isSend ? 28 : 0, phys.px, phys.py);
       }
     }
   }
@@ -1560,7 +1562,8 @@ class PatchSystem {
     } else if (signalType === 'cv') {
       drawCvCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, 0, 0);
     } else {
-      drawCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, fromJack.h, 0.55, 0, 0);
+      const fromMod = registry.modules.get(this.patchCursor.fromId);
+      drawAudioCable(ctx2d, fromJack.x, fromJack.y, mouseX, mouseY, fromMod?.type === 'mixer' ? 28 : 0, 0, 0);
     }
   }
 
